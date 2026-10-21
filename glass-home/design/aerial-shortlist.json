@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Scotland",
+    "formats": {
+      "1080p SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/S003_C020_SDR_2K_HEVC.mov",
+      "1080p Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/S003_C020_HDR_2K_HEVC.mov",
+      "4K SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/S003_C020_SDR_4K_HEVC.mov",
+      "4K Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/S003_C020_HDR_4K_HEVC.mov",
+      "1080p H.264": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/97/e9/06/97e90616-1227-c670-6118-bd5ae991b43b/S003_C020_SDR_2K_AVC.mov"
+    }
+  },
+  {
+    "name": "Hawaii",
+    "formats": {
+      "1080p SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_H007_C003_PS_v01_SDR_PS_20180925_SDR_2K_HEVC.mov",
+      "1080p Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_H007_C003_PS_v01_HDR_PS_20180925_HDR_2K_tuned.mov",
+      "4K SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_H007_C003_PS_v01_SDR_PS_20180925_SDR_4K_HEVC.mov",
+      "4K Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_H007_C003_PS_v01_HDR_PS_20180925_HDR_4K_tuned.mov",
+      "1080p H.264": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/97/e9/06/97e90616-1227-c670-6118-bd5ae991b43b/comp_H007_C003_PS_v01_SDR_PS_20180925_SDR_2K_AVC.mov"
+    }
+  },
+  {
+    "name": "North America Aurora",
+    "formats": {
+      "1080p SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_GMT314_139M_170NC_NORTH_AMERICA_AURORA__COMP_v22_SDR_20181206_v12CC_SDR_2K_HEVC.mov",
+      "1080p Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_GMT314_139M_170NC_NORTH_AMERICA_AURORA__COMP_v22_HDR_20181206_v12CC_HDR_2K_HEVC.mov",
+      "4K SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_GMT314_139M_170NC_NORTH_AMERICA_AURORA__COMP_v22_SDR_20181206_v12CC_SDR_4K_HEVC.mov",
+      "4K Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_GMT314_139M_170NC_NORTH_AMERICA_AURORA__COMP_v22_HDR_20181206_v12CC_HDR_4K_HEVC.mov",
+      "1080p H.264": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/97/e9/06/97e90616-1227-c670-6118-bd5ae991b43b/comp_GMT314_139M_170NC_NORTH_AMERICA_AURORA__COMP_v22_SDR_20181206_v12CC_SDR_2K_AVC.mov"
+    }
+  },
+  {
+    "name": "Hong Kong",
+    "formats": {
+      "1080p SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/HK_H004_C013_2K_SDR_HEVC.mov",
+      "1080p Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/HK_H004_C013_2K_HDR_HEVC.mov",
+      "4K SDR": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/HK_H004_C013_4K_SDR_HEVC.mov",
+      "4K Dolby Vision": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/HK_H004_C013_4K_HDR_HEVC.mov",
+      "1080p H.264": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/97/e9/06/97e90616-1227-c670-6118-bd5ae991b43b/comp_HK_H004_C013_t9_6M_HB_tag0.mov"
+    }
+  }
+]

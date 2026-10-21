@@ -1,0 +1,11 @@
+<resources>
+    <string name="home_guard_description">让遥控器主页键返回玻璃桌面。只监听窗口切换和主页键，不读取屏幕内容。</string>
+    <style name="GlassTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#091526</item>
+        <item name="android:colorAccent">#C7D8FF</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

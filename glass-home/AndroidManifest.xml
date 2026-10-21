@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.gathin.glasshome" android:versionCode="3" android:versionName="1.2">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <queries>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
+        <package android:name="com.xiaomi.mitv.smartshare" />
+        <package android:name="com.xiaomi.mitv.settings" />
+        <package android:name="com.netflix.ninja" />
+        <package android:name="com.netflix.mediaclient" />
+    </queries>
+    <application android:name="com.gathin.glasshome.GlassApplication" android:label="玻璃桌面" android:icon="@drawable/home_icon" android:banner="@drawable/wallpaper" android:allowBackup="false" android:theme="@style/GlassTheme" android:hardwareAccelerated="true">
+        <receiver android:name="com.gathin.glasshome.RoutingReceiver" android:exported="true" android:permission="android.permission.WRITE_SECURE_SETTINGS">
+            <intent-filter><action android:name="com.gathin.glasshome.CONFIGURE_ROUTING" /></intent-filter>
+        </receiver>
+        <receiver android:name="com.gathin.glasshome.BootReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+        </receiver>
+        <service android:name="com.gathin.glasshome.RoutingLifecycleService" android:label="玻璃桌面唤醒恢复" android:exported="true" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
+        <service android:name="com.gathin.glasshome.HomeGuardService" android:label="玻璃桌面主页键" android:exported="true" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/home_guard" />
+        </service>
+        <activity android:name="com.gathin.glasshome.GlassHomeActivity" android:exported="true" android:launchMode="singleTask" android:screenOrientation="landscape" android:excludeFromRecents="true" android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.HOME" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent-filter>
+        </activity>
+    </application>
+</manifest>
