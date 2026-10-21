@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+.screenshots/
+/public/media/*.mp4
+/public/media/*.mov

@@ -8,7 +8,21 @@
 
 字体为 Inter（英文／数字）+ Source Han Sans CN（中文），使用真正的 300、400、500 字重。可安装到 Windows，也能嵌入 Android；不是 SF Pro 或苹方。完整字体许可在 `assets/licenses/`，也会打包进 APK。
 
-## 构建与安装
+## 电脑端实时展示（React）
+
+配套项目在 [`tv-mirror/`](tv-mirror/README.md)，通过 ADB + scrcpy 将电视当前屏幕实时同步到电脑浏览器，支持遥控、截图、全屏和悬停应用快捷切换。
+
+安装 Node.js 22.12+ 和 ADB 后，在 `glass-home` 目录执行：
+
+```powershell
+./start-mirror.ps1 -TvHost 192.168.31.81
+```
+
+首次启动自动执行 `npm ci`，随后打开 <http://localhost:5173>。电视与电脑需在同一局域网，电视开启 ADB 调试并授权电脑。IP 可以在网页“连接”中修改；其他电脑可加 `-AdbPath 'C:/Android/platform-tools/adb.exe'`，端口被占用可加 `-Port 5174`。按 Ctrl+C 停止服务。
+
+也可以进入 `tv-mirror`，手动执行 `npm ci`、`npm run dev`。该 React 项目与 Android APK 独立运行；显示的是电视真实画面，Home 按钮直接返回已安装的 Glass Home。
+
+## Android 构建与安装
 
 在 PowerShell 中执行 `./build.ps1`。需要 JDK 17 和 Android SDK 34，默认使用工作区 `.local-tools/` 中准备好的工具；可以传 `-JavaHome`、`-SdkRoot`。产物为 `output/glass-home.apk`。签名密钥只保存在本地 `.signing/`，不要提交。
 
