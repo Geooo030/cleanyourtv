@@ -35,13 +35,15 @@ final class GlassScene extends ViewGroup {
     private final GlassHomeActivity owner;
     private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final RectF full=new RectF(0,0,W,H);
-    private final RectF[] boxes=new RectF[9];
-    private final View[] nodes=new View[9];
+    private final RectF[] boxes=new RectF[10];
+    private final View[] nodes=new View[10];
     private final Drawable[] icons=new Drawable[2];
+    private final Drawable[] topIcons=new Drawable[3];
+    private Drawable stockHomeIcon;
     private final Typeface regular;
     private final Typeface light;
     private final Typeface medium;
-    private final float[] weights={1,0,0,0,0,0,0,0,0};
+    private final float[] weights={1,0,0,0,0,0,0,0,0,0};
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final Bitmap stillBlur;
     private final Bitmap videoBlur=Bitmap.createBitmap(240,135,Bitmap.Config.ARGB_8888);
@@ -49,6 +51,7 @@ final class GlassScene extends ViewGroup {
     private boolean dynamic;
     private int selected=0,hero=0;
     private float scale=1,offsetX,offsetY,lightX=354;
+    private float topFocusX=1410,topFocusWeight;
     private ValueAnimator focusAnimation,lightAnimation;
     private final Runnable clock=new Runnable() {
         @Override public void run() { invalidate(); handler.postDelayed(this,60000-System.currentTimeMillis()%60000); }
@@ -67,21 +70,26 @@ final class GlassScene extends ViewGroup {
         stillBlur=Bitmap.createBitmap(240,135,Bitmap.Config.ARGB_8888);
         blur(small,stillBlur);
         small.recycle();
-        for(int i=0;i<9;i++) {
+        for(int i=0;i<10;i++) {
             final int index=i;
-            if(i<4) boxes[i]=new RectF(154+i*414,610,154+i*414+370,852);
-            else if(i==8)boxes[i]=new RectF(414,75,635,129);
-            else boxes[i]=new RectF(562+(i-4)*204,958,562+(i-4)*204+184,1016);
+            if(i<4) boxes[i]=new RectF(148+i*414,716,148+i*414+370,914);
+            else if(i==8)boxes[i]=new RectF(1372,116,1448,192);
+            else if(i==9)boxes[i]=new RectF(1482,116,1558,192);
+            else if(i==6)boxes[i]=new RectF(1592,116,1668,192);
+            else if(i==7)boxes[i]=new RectF(1702,116,1778,192);
+            else boxes[i]=new RectF(130+(i-4)*230,987,340+(i-4)*230,1045);
             nodes[i]=new View(owner) {
                 @Override protected void drawableStateChanged(){ super.drawableStateChanged(); GlassScene.this.invalidate(); }
             };
             nodes[i].setFocusable(true);
             nodes[i].setClickable(true);
-            nodes[i].setContentDescription(i<4?GlassHomeActivity.LABELS[i]:i==8?"切换到小米原主页":FOOTER[i-4]);
+            nodes[i].setContentDescription(i<4?GlassHomeActivity.LABELS[i]:i==8?"小米原主页":i==9?"HDMI 信号源":FOOTER[i-4]);
             nodes[i].setOnFocusChangeListener((v,focused)-> { if(focused) select(index); });
             nodes[i].setOnClickListener(v->owner.activate(index));
             addView(nodes[i]);
         }
+        topIcons[0]=owner.getDrawable(R.drawable.ic_input);topIcons[1]=owner.getDrawable(R.drawable.ic_wifi);topIcons[2]=owner.getDrawable(R.drawable.ic_settings);
+        stockHomeIcon=owner.getDrawable(R.drawable.ic_apple);
         for(int i=0;i<2;i++) {
             try { icons[i]=owner.getPackageManager().getApplicationIcon(GlassHomeActivity.PACKAGES[i]); }
             catch(Exception ignored) { }
@@ -93,19 +101,25 @@ final class GlassScene extends ViewGroup {
     void close(){ stopClock(); if(focusAnimation!=null)focusAnimation.cancel(); if(lightAnimation!=null)lightAnimation.cancel(); stillBlur.recycle(); videoBlur.recycle(); }
     void useVideoFrame(Bitmap frame){ blur(frame,videoBlur); dynamic=true; invalidate(); }
     void useStill(){ dynamic=false; invalidate(); }
+    Bitmap glassFrame(){return dynamic?videoBlur:stillBlur;}
     void focusApp(int index){ nodes[Math.max(0,Math.min(3,index))].requestFocus(); }
+    void focusControl(int index){nodes[Math.max(4,Math.min(9,index))].requestFocus();}
 
     private void select(int index) {
         selected=index;
         if(index<4)hero=index;
         if(focusAnimation!=null)focusAnimation.cancel();
         float[] from=weights.clone();
+        float targetTopX=index>=6?boxes[index].centerX():topFocusX;
+        float fromTopX=topFocusWeight<.01f?targetTopX:topFocusX,fromTopWeight=topFocusWeight;
         focusAnimation=ValueAnimator.ofFloat(0,1);
-        focusAnimation.setDuration(240);
+        focusAnimation.setDuration(index>=6?300:240);
         focusAnimation.setInterpolator(new PathInterpolator(.16f,1f,.3f,1f));
         focusAnimation.addUpdateListener(a->{
             float t=(float)a.getAnimatedValue();
-            for(int i=0;i<9;i++)weights[i]=from[i]+((i==index?1f:0f)-from[i])*t;
+            for(int i=0;i<10;i++)weights[i]=from[i]+((i==index?1f:0f)-from[i])*t;
+            topFocusX=fromTopX+(targetTopX-fromTopX)*t;
+            topFocusWeight=fromTopWeight+((index>=6?1f:0f)-fromTopWeight)*t;
             invalidate();
         });
         focusAnimation.start();
@@ -123,12 +137,12 @@ final class GlassScene extends ViewGroup {
         int key=event.getKeyCode();
         if(event.getAction()==KeyEvent.ACTION_DOWN) {
             int target=selected;
-            if(key==KeyEvent.KEYCODE_DPAD_LEFT)target=selected==8?8:Math.max(selected<4?0:4,selected-1);
-            else if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=selected==8?8:Math.min(selected<4?3:7,selected+1);
-            else if(key==KeyEvent.KEYCODE_DPAD_DOWN && selected<4)target=selected+4;
-            else if(key==KeyEvent.KEYCODE_DPAD_DOWN && selected==8)target=0;
-            else if(key==KeyEvent.KEYCODE_DPAD_UP && selected>=4 && selected<8)target=selected-4;
-            else if(key==KeyEvent.KEYCODE_DPAD_UP && selected<4)target=8;
+            if(key==KeyEvent.KEYCODE_DPAD_LEFT)target=selected<4?Math.max(0,selected-1):selected==7?6:selected==6?9:selected==9?8:selected==5?4:selected;
+            else if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=selected<4?Math.min(3,selected+1):selected==8?9:selected==9?6:selected==6?7:selected==4?5:selected;
+            else if(key==KeyEvent.KEYCODE_DPAD_DOWN && selected<4)target=selected<2?4:5;
+            else if(key==KeyEvent.KEYCODE_DPAD_DOWN && (selected==8||selected==9||selected==6||selected==7))target=selected==8?0:selected==9?1:selected==6?2:3;
+            else if(key==KeyEvent.KEYCODE_DPAD_UP && (selected==4||selected==5))target=selected==4?0:2;
+            else if(key==KeyEvent.KEYCODE_DPAD_UP && selected<4)target=selected==0?8:selected==1?9:selected==2?6:7;
             else if(key==KeyEvent.KEYCODE_MENU){owner.activate(4);return true;}
             else return super.dispatchKeyEvent(event);
             if(target!=selected){nodes[target].requestFocus();playSoundEffect(SoundEffectConstants.NAVIGATION_RIGHT);}
@@ -143,11 +157,11 @@ final class GlassScene extends ViewGroup {
         scale=Math.min(getMeasuredWidth()/W,getMeasuredHeight()/H);
         offsetX=(getMeasuredWidth()-W*scale)/2;
         offsetY=(getMeasuredHeight()-H*scale)/2;
-        for(int i=0;i<9;i++)nodes[i].measure(MeasureSpec.makeMeasureSpec(Math.round(boxes[i].width()*scale),MeasureSpec.EXACTLY),
+        for(int i=0;i<10;i++)nodes[i].measure(MeasureSpec.makeMeasureSpec(Math.round(boxes[i].width()*scale),MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(Math.round(boxes[i].height()*scale),MeasureSpec.EXACTLY));
     }
     @Override protected void onLayout(boolean changed,int l,int t,int r,int b) {
-        for(int i=0;i<9;i++) {
+        for(int i=0;i<10;i++) {
             RectF box=boxes[i];
             nodes[i].layout(Math.round(offsetX+box.left*scale),Math.round(offsetY+box.top*scale),
                     Math.round(offsetX+box.right*scale),Math.round(offsetY+box.bottom*scale));
@@ -162,45 +176,53 @@ final class GlassScene extends ViewGroup {
         p.setShader(new LinearGradient(0,470,0,H,new int[]{0x00071322,0x45071322,0xa6071322},null,Shader.TileMode.CLAMP));
         c.drawRect(full,p); p.setShader(null);
         header(c);
-        text(c,"把时间，留给喜欢的事。",132,251,21,0xbfffffff,regular,Paint.Align.LEFT);
-        text(c,HERO[hero],128,348,65,Color.WHITE,light,Paint.Align.LEFT);
-        text(c,DETAILS[hero],133,402,25,0xc2ffffff,regular,Paint.Align.LEFT);
-        for(int i=0;i<4;i++) {
-            p.setColor(i==hero?0xf0ffffff:0x50ffffff);
-            if(i==hero)c.drawRoundRect(134+i*22,442,148+i*22,447,3,3,p);
-            else c.drawCircle(139+i*22,444.5f,2.5f,p);
-        }
-        text(c,"常用应用",136,558,22,0xe6ffffff,medium,Paint.Align.LEFT);
-        text(c,dynamic?"HAWAIʻI  /  AERIAL":"DUSK  /  STILL",1782,557,14,0xa6ffffff,regular,Paint.Align.RIGHT);
-        p.setShader(new RadialGradient(lightX,760,400,new int[]{withAlpha(ACCENTS[hero],48),0x00000000},null,Shader.TileMode.CLAMP));
-        c.drawRect(0,480,W,970,p);p.setShader(null);
-        frosted(c,new RectF(120,582,1800,890),46,.48f,0);
+        text(c,SUB[hero],136,443,16,0xa6ffffff,medium,Paint.Align.LEFT);
+        text(c,GlassHomeActivity.LABELS[hero],128,548,76,Color.WHITE,light,Paint.Align.LEFT);
+        text(c,HERO[hero],134,598,25,0xcfffffff,regular,Paint.Align.LEFT);
+        text(c,"常用应用",136,663,20,0xdfffffff,medium,Paint.Align.LEFT);
+        text(c,WallpaperCatalog.find(owner.selectedWallpaper()).tag,1782,663,14,0x99ffffff,regular,Paint.Align.RIGHT);
+        p.setShader(new RadialGradient(lightX,820,400,new int[]{withAlpha(ACCENTS[hero],40),0x00000000},null,Shader.TileMode.CLAMP));
+        c.drawRect(0,620,W,980,p);p.setShader(null);
+        frosted(c,new RectF(120,688,1800,946),43,.46f,0);
         // Nonfocused cards first. The raised card owns the top visual plane.
         for(int i=0;i<4;i++)if(i!=selected)card(c,i);
         if(selected<4)card(c,selected);
-        for(int i=4;i<8;i++)control(c,i);
-        text(c,"方向键选择 · 确认键打开",138,994,17,0x99ffffff,regular,Paint.Align.LEFT);
-        text(c,"GLASS HOME",1782,994,13,0x85ffffff,medium,Paint.Align.RIGHT);
+        for(int i=4;i<6;i++)control(c,i);
+        text(c,"方向键选择 · 确认键打开",1010,1023,17,0x99ffffff,regular,Paint.Align.CENTER);
+        text(c,"GLASS HOME",1782,1023,13,0x85ffffff,medium,Paint.Align.RIGHT);
         c.restore();
     }
 
     private void header(Canvas c) {
-        frosted(c,new RectF(130,72,187,129),22,.7f,0);
-        p.setColor(0xf2ffffff);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(2.3f);p.setStrokeJoin(Paint.Join.ROUND);p.setStrokeCap(Paint.Cap.ROUND);
-        Path home=new Path();home.moveTo(147,99);home.lineTo(158.5f,89);home.lineTo(170,99);home.moveTo(150,97);home.lineTo(150,111);home.lineTo(156,111);home.lineTo(156,103);home.lineTo(162,103);home.lineTo(162,111);home.lineTo(167,111);home.lineTo(167,97);c.drawPath(home,p);p.setStyle(Paint.Style.FILL);
-        text(c,"客厅",207,110,29,Color.WHITE,medium,Paint.Align.LEFT);
-        p.setColor(0x35ffffff);c.drawRect(290,89,291,114,p);
-        text(c,"主页",316,109,23,0xd9ffffff,regular,Paint.Align.LEFT);
-        RectF stock=boxes[8];
-        frosted(c,stock,27,.3f+.6f*weights[8],0);
-        text(c,"小米原主页",stock.left+27,stock.centerY()+8,20,0xe6ffffff,regular,Paint.Align.LEFT);
-        text(c,"↗",stock.right-26,stock.centerY()+8,23,0xcfffffff,regular,Paint.Align.RIGHT);
-        if(weights[8]>.01f){p.setColor(withAlpha(Color.WHITE,(int)(220*weights[8])));p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.8f);c.drawRoundRect(stock,27,27,p);p.setStyle(Paint.Style.FILL);}
         Date now=new Date();
-        text(c,new SimpleDateFormat("HH:mm",Locale.CHINA).format(now),1786,111,49,Color.WHITE,light,Paint.Align.RIGHT);
-        text(c,new SimpleDateFormat("M月d日  EEEE",Locale.CHINA).format(now),1784,148,20,0xc2ffffff,regular,Paint.Align.RIGHT);
-        p.setColor(owner.online()?0xffa3e0c3:0xffd8b5a5);c.drawCircle(1649,178,3.5f,p);
-        text(c,owner.online()?"网络已连接":"网络未连接",1784,184,16,0xa6ffffff,regular,Paint.Align.RIGHT);
+        int hour=Integer.parseInt(new SimpleDateFormat("H",Locale.CHINA).format(now));
+        text(c,hour<6?"GOOD NIGHT":hour<12?"GOOD MORNING":hour<18?"GOOD AFTERNOON":"GOOD EVENING",132,77,18,0xb3ffffff,medium,Paint.Align.LEFT);
+        text(c,new SimpleDateFormat("HH:mm",Locale.CHINA).format(now),125,183,94,Color.WHITE,light,Paint.Align.LEFT);
+        p.setColor(0x45ffffff);c.drawRect(416,142,417,181,p);
+        text(c,new SimpleDateFormat("M月d日  EEEE",Locale.CHINA).format(now),451,176,23,0xcfffffff,regular,Paint.Align.LEFT);
+        for(int index:new int[]{8,9,6,7})frosted(c,boxes[index],38,.3f,0);
+        if(topFocusWeight>.001f){
+            float lift=4*topFocusWeight;
+            RectF highlight=new RectF(topFocusX-41,113-lift,topFocusX+41,195-lift);
+            p.setColor(withAlpha(Color.WHITE,(int)(225*topFocusWeight)));
+            c.drawRoundRect(highlight,41,41,p);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.2f);p.setColor(withAlpha(Color.WHITE,(int)(180*topFocusWeight)));
+            c.drawRoundRect(highlight,41,41,p);p.setStyle(Paint.Style.FILL);
+        }
+        for(int index:new int[]{8,9,6,7})topControl(c,index);
+
+    }
+
+    private void topControl(Canvas c,int index){
+        RectF r=boxes[index];float f=weights[index];
+        c.save();c.translate(0,-4*f);c.scale(1+.18f*f,1+.18f*f,r.centerX(),r.centerY());
+        Drawable icon=index==8?stockHomeIcon:topIcons[index==9?0:index==6?1:2];
+        if(icon!=null){
+            int size=index==8?36:30;
+            icon.setTint(Color.rgb(Math.round(255-232*f),Math.round(255-223*f),Math.round(255-213*f)));
+            icon.setBounds((int)(r.centerX()-size/2f),(int)(r.centerY()-size/2f),(int)(r.centerX()+size/2f),(int)(r.centerY()+size/2f));icon.draw(c);
+        }
+        c.restore();
     }
 
     private void card(Canvas c,int index) {
@@ -208,15 +230,20 @@ final class GlassScene extends ViewGroup {
         RectF box=boxes[index];
         c.save();c.translate(0,-10*f);c.scale((1+.045f*f)*press,(1+.045f*f)*press,box.centerX(),box.centerY());
         if(f>.01f){p.setColor(Color.BLACK);p.setAlpha((int)(45*f));p.setShadowLayer(22,0,15,0x70000000);c.drawRoundRect(box,31,31,p);p.clearShadowLayer();p.setAlpha(255);}
-        frosted(c,box,31,.58f+.30f*f,withAlpha(ACCENTS[index],(int)(14+12*f)));
+        frosted(c,box,31,.58f+.30f*f,withAlpha(ACCENTS[index],(int)(6+7*f)));
         if(f>.01f) {
             p.setShader(new LinearGradient(box.left,box.top,box.right,box.bottom,new int[]{withAlpha(Color.WHITE,(int)(200*f)),withAlpha(Color.WHITE,(int)(45*f)),withAlpha(Color.WHITE,(int)(105*f))},null,Shader.TileMode.CLAMP));
             p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.7f);c.drawRoundRect(box,31,31,p);p.setStyle(Paint.Style.FILL);p.setShader(null);
         }
-        float cx=box.centerX(),cy=box.top+89;
-        appIcon(c,index,cx,cy);
-        text(c,GlassHomeActivity.LABELS[index],cx,box.top+184,27,Color.WHITE,medium,Paint.Align.CENTER);
-        text(c,SUB[index],cx,box.top+214,13.5f,0xa6ffffff,regular,Paint.Align.CENTER);
+        float cx=box.centerX(),cy=box.top+88;
+        if(index==3){
+            text(c,"NETFLIX",cx,box.top+111,51,0xffffedf0,medium,Paint.Align.CENTER);
+        } else {
+            c.save();c.scale(.85f,.85f,box.left+81,cy);
+            appIcon(c,index,box.left+81,cy);c.restore();
+            text(c,index==0?"云视听":index==1?"网易云":"无线",box.left+147,box.top+79,27,Color.WHITE,medium,Paint.Align.LEFT);
+            text(c,index==0?"小电视":index==1?"音乐":"投屏",box.left+147,box.top+116,27,Color.WHITE,medium,Paint.Align.LEFT);
+        }
         if(index==3&&!owner.isInstalled(3)) {
             p.setColor(0x18ffffff);c.drawRoundRect(box.right-82,box.top+17,box.right-17,box.top+43,13,13,p);
             text(c,"待安装",box.right-49.5f,box.top+35,12,0xc2ffffff,regular,Paint.Align.CENTER);
@@ -248,7 +275,7 @@ final class GlassScene extends ViewGroup {
     private void control(Canvas c,int index) {
         RectF r=boxes[index];float f=weights[index];
         c.save();c.scale(1+.045f*f,1+.045f*f,r.centerX(),r.centerY());
-        frosted(c,r,29,.30f+.6f*f,0);
+        frosted(c,r,index>=6?37:29,.30f+.6f*f,0);
         float x=r.left+30,y=r.centerY();
         p.setColor(0xe0ffffff);p.setStrokeWidth(2);p.setStyle(Paint.Style.STROKE);
         if(index==4){for(int i=0;i<4;i++){float a=x+(i%2)*10,b=y-8+(i/2)*10;c.drawRoundRect(a,b,a+6,b+6,1,1,p);}}
@@ -263,10 +290,10 @@ final class GlassScene extends ViewGroup {
 
     private void frosted(Canvas c,RectF r,float radius,float strength,int accent) {
         c.save();Path clip=new Path();clip.addRoundRect(r,radius,radius,Path.Direction.CW);c.clipPath(clip);
-        p.setColor(Color.WHITE);p.setAlpha((int)(190+55*strength));c.drawBitmap(dynamic?videoBlur:stillBlur,null,full,p);p.setAlpha(255);
-        p.setColor(0x200b1730);c.drawRect(r,p);
+        p.setColor(Color.WHITE);p.setAlpha((int)(95+45*strength));c.drawBitmap(dynamic?videoBlur:stillBlur,null,full,p);p.setAlpha(255);
+        p.setColor(0x090b1730);c.drawRect(r,p);
         p.setShader(new LinearGradient(r.left,r.top,r.right,r.bottom,
-                new int[]{withAlpha(Color.WHITE,(int)(24+24*strength)),withAlpha(Color.WHITE,(int)(9+9*strength)),0x101a2846},
+                new int[]{withAlpha(Color.WHITE,(int)(14+17*strength)),withAlpha(Color.WHITE,(int)(5+6*strength)),0x081a2846},
                 new float[]{0,.45f,1},Shader.TileMode.CLAMP));c.drawRect(r,p);p.setShader(null);
         if(accent!=0){p.setColor(accent);c.drawRect(r,p);}
         c.restore();

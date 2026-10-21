@@ -6,24 +6,33 @@ import { randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { VideoParser, validateTarget } from './protocol.mjs';
-import { resolveRemoteKey } from './remote.mjs';
-import { TV_APPS, resolveApp, LatestLaunchQueue } from './apps.mjs';
+import { remoteCommand } from './remote.mjs';
+import { protectedWindow } from './window.mjs';
 
 const exec = promisify(execFile);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-// Find workspace tools after cloning or nesting this app under glass-home.
 let bundledAdb;
 for (let directory = import.meta.dirname; ; directory = dirname(directory)) {
   const candidate = resolve(directory, '.local-tools/platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb');
   if (existsSync(candidate)) { bundledAdb = candidate; break; }
   if (dirname(directory) === directory) break;
 }
-const adb = process.env.ADB_PATH || (existsSync(bundledAdb) ? bundledAdb : 'adb');
+const adb = process.env.ADB_PATH || bundledAdb || 'adb';
 const serverJar = resolve(import.meta.dirname, '../vendor/scrcpy-server-v5.0.1');
 
 export class MirrorSession extends EventEmitter {
   config = { ip: process.env.TV_HOST || '192.168.31.81', port: 5555, quality: '1080' };
-  state = { phase: 'idle', message: '准备就绪，连接电视即可开始同步', model: '', width: 0, height: 0, bytes: 0, frames: 0, startedAt: null };
+  state = { phase: 'idle', message: '准备就绪，连接电视即可开始同步', model: '', width: 0, height: 0, bytes: 0, frames: 0, startedAt: null, protected: false, protectedApp: '' };
+  inspectingWindow = false;
+  async inspectWindow() {
+    if (this.inspectingWindow || this.state.phase !== 'streaming') return;
+    this.inspectingWindow = true;
+    const generation = this.generation;
+    try {
+      const state = protectedWindow(await this.device(['shell', 'dumpsys', 'window', 'windows'], 4000));
+      if (generation === this.generation && (state.protected !== this.state.protected || state.protectedApp !== this.state.protectedApp)) this.update(state);
+    } catch {} finally { this.inspectingWindow = false; }
+  }
   generation = 0;
   starting = null;
   codecPacket = null;
@@ -31,46 +40,28 @@ export class MirrorSession extends EventEmitter {
   process = null;
   forwardPort = null;
   remotePath = null;
+  remotePid = null;
   serverLog = '';
   keyQueue = Promise.resolve();
   pendingKeys = 0;
-  launches = new LatestLaunchQueue(async ({ id, generation }) => {
-    if (generation !== this.generation) return { skipped: true };
-    const app = resolveApp(id);
-    let component = app.component;
-    if (!component) {
-      const result = await this.device(['shell', 'cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LEANBACK_LAUNCHER', app.package]);
-      component = result.split(/\r?\n/).find(line => /^com\.netflix\.ninja\/[\w.$]+$/.test(line));
-      if (!component) throw new Error('电视尚未安装 Netflix，已为它保留入口');
-    }
-    if (generation !== this.generation) return { skipped: true };
-    const result = await this.device(['shell', 'am', 'start', '-n', component], 8000);
-    if (/Error|Exception|does not exist/i.test(result)) throw new Error(`${app.name}暂时无法打开，请确认电视已安装该应用`);
-    return { ok: true, id };
-  });
-  async apps() {
-    if (this.state.phase !== 'streaming') return {};
-    const installed = new Set((await this.device(['shell', 'pm', 'list', 'packages'])).split(/\r?\n/).map(s => s.replace(/^package:/, '').trim()));
-    return Object.fromEntries(Object.entries(TV_APPS).map(([id, app]) => [id, installed.has(app.package)]));
-  }
-  launch(id) {
-    resolveApp(id);
-    if (this.state.phase !== 'streaming') throw new Error('请先连接电视，再打开应用');
-    return this.launches.request({ id, generation: this.generation });
+  control(action) {
+    const run = this.keyQueue.then(action);
+    this.keyQueue = run.catch(() => {});
+    return run;
   }
   async key(name) {
-    const code = resolveRemoteKey(name);
+    const args = remoteCommand(name);
     if (this.state.phase !== 'streaming') throw new Error('请先连接电视，再使用遥控器');
     if (this.pendingKeys >= 8) throw new Error('按键发送过快，请稍等');
-    if (name === 'HOME') this.launches.cancel();
     this.pendingKeys++;
     // Injected HOME bypasses the accessibility key filter on Xiaomi firmware.
     // Open our home explicitly so the web remote matches the physical remote.
-    const run = this.keyQueue.then(() => this.device(name === 'HOME'
-      ? ['shell', 'am', 'start', '-n', 'com.gathin.glasshome/.GlassHomeActivity']
-      : ['shell', 'input', 'keyevent', String(code)], 5000));
-    this.keyQueue = run.catch(() => {});
-    try { await run; } finally { this.pendingKeys--; }
+    const generation = this.generation;
+    const run = this.control(() => {
+      if (generation !== this.generation) throw new Error('连接已改变，请重新操作');
+      return this.device(args, 5000);
+    });
+    try { await run; if (name === 'HOME') this.update({ protected: false, protectedApp: '' }); } finally { this.pendingKeys--; }
   }
   snapshot() { return { ...this.state, ...this.config }; }
   update(patch) { Object.assign(this.state, patch); this.emit('status', this.snapshot()); }
@@ -93,7 +84,7 @@ export class MirrorSession extends EventEmitter {
     const check = () => { if (id !== this.generation) throw new Error('Cancelled'); };
     this.starting = (async () => {
       try {
-        if (!existsSync(serverJar)) throw new Error('缺少 vendor/scrcpy-server-v5.0.1，请从仓库恢复此文件');
+        if (!existsSync(serverJar)) throw new Error('缺少 scrcpy-server，请先运行 npm run setup');
         this.update({ phase: 'connecting', message: '正在连接电视的 ADB…', bytes: 0, frames: 0, startedAt: null });
         const serial = validateTarget(this.config.ip, this.config.port);
         const connected = await this.command(['connect', serial]); check();
@@ -108,13 +99,18 @@ export class MirrorSession extends EventEmitter {
         this.forwardPort = Number(await this.device(['forward', 'tcp:0', `localabstract:scrcpy_${scid}`])); check();
         if (!this.forwardPort) throw new Error('无法建立 ADB 视频转发');
         const max = this.config.quality === '1080' ? 1920 : 1280;
-        const args = ['-s', serial, 'shell', `CLASSPATH=${this.remotePath}`, 'app_process', '/', 'com.genymobile.scrcpy.Server', '5.0.1',
+        const remoteArgs = ['app_process', '/', 'com.genymobile.scrcpy.Server', '5.0.1',
           `scid=${scid}`, 'tunnel_forward=true', 'audio=false', 'control=false', 'video_codec=h264', `max_size=${max}`,
           'max_fps=30', `video_bit_rate=${max === 1920 ? 6000000 : 3000000}`, 'send_device_meta=false',
           'send_dummy_byte=true', 'send_stream_meta=true', 'send_frame_meta=true', 'video_codec_options=i-frame-interval=1', 'power_on=false'];
         this.serverLog = '';
-        this.process = spawn(adb, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-        const log = data => { this.serverLog = (this.serverLog + data.toString()).slice(-4000); };
+        const script = `echo TV_MIRROR_PID=$$; CLASSPATH=${this.remotePath} exec ${remoteArgs.join(' ')}`;
+        this.process = spawn(adb, ['-s', serial, 'shell', script], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        const log = data => {
+          this.serverLog = (this.serverLog + data.toString()).slice(-4000);
+          const match = this.serverLog.match(/TV_MIRROR_PID=(\d+)/);
+          if (match && id === this.generation) this.remotePid = Number(match[1]);
+        };
         this.process.stdout.on('data', log); this.process.stderr.on('data', log);
         this.process.on('error', error => { if (id === this.generation) this.fail(error); });
         this.process.on('exit', code => {
@@ -162,14 +158,22 @@ export class MirrorSession extends EventEmitter {
   }
   async release() {
     this.socket?.destroy(); this.socket = null;
-    this.process?.kill(); this.process = null;
-    const port = this.forwardPort, path = this.remotePath;
+    const process = this.process, port = this.forwardPort, path = this.remotePath, pid = this.remotePid;
+    this.process = null; this.remotePid = null;
     this.forwardPort = null; this.remotePath = null; this.codecPacket = null;
+    // On Windows, killing adb.exe alone can leave the remote encoder alive.
+    // Check this session's unique scid before terminating its recorded PID.
+    if (pid && path) {
+      const command = await this.device(['shell', 'cat', `/proc/${pid}/cmdline`], 2500).catch(() => '');
+      const scid = path.match(/tv-mirror-([0-9a-f]{8})\.jar$/)?.[1];
+      if (scid && command.includes('com.genymobile.scrcpy.Server') && command.includes(`scid=${scid}`))
+        await this.device(['shell', 'kill', String(pid)], 2500).catch(() => {});
+    }
+    process?.kill();
     if (port) await this.device(['forward', '--remove', `tcp:${port}`]).catch(() => {});
     if (path) await this.device(['shell', 'rm', '-f', path]).catch(() => {});
   }
   async stop() {
-    this.launches.cancel();
     ++this.generation; this.starting = null;
     await this.release();
     this.update({ phase: 'idle', message: '同步已暂停' });
@@ -189,7 +193,7 @@ function openVideo(port) {
 }
 function friendlyError(message) {
   if (/unauthorized/i.test(message)) return '电视正在等待授权：请在电视上选择“允许 USB 调试”';
-  if (/refused|10061|unable to connect|failed to connect|timeout|timed out/i.test(message)) return '暂时连接不上电视。请确认电视开机、IP 正确，并在“账号与安全”里开启 ADB 调试。';
+  if (/refused|10061|unable to connect|failed to connect|timeout|timed out|offline|Command failed:.*connect/i.test(message)) return '暂时连接不上电视。请确认电视开机、IP 正确，并在“账号与安全”里开启 ADB 调试。';
   if (/ENOENT/.test(message)) return '找不到 ADB。请设置 ADB_PATH，或使用工作区自带的 platform-tools。';
   return message.slice(0, 800);
 }

@@ -2,6 +2,7 @@ package com.gathin.glasshome;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.ComponentName;
 import android.content.pm.ResolveInfo;
@@ -16,11 +17,6 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.Toast;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 /** Four-app, remote-first home. The stock Xiaomi launcher remains installed and enabled. */
 public final class GlassHomeActivity extends Activity {
@@ -28,9 +24,13 @@ public final class GlassHomeActivity extends Activity {
     static final String[] PACKAGES = {"com.xiaodianshi.tv.yst", "com.netease.cloudmusic.tv",
             "com.xiaomi.mitv.smartshare", "com.netflix.ninja"};
     GlassScene scene;
+    java.util.concurrent.FutureTask<java.util.List<AppsOverlay.Entry>> appsCatalog;
     private VideoBackdrop video;
     private Bitmap wallpaper;
     private boolean resumed;
+    private AppsOverlay appsOverlay;
+    private OptionsOverlay optionsOverlay;
+    private final java.util.Map<String,Bitmap> covers=new java.util.HashMap<>();
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -52,9 +52,11 @@ public final class GlassHomeActivity extends Activity {
         root.addView(still, new FrameLayout.LayoutParams(-1, -1));
         video = new VideoBackdrop(this);
         root.addView(video, new FrameLayout.LayoutParams(-1, -1));
+        ImageView transitionCover=new ImageView(this);transitionCover.setScaleType(ImageView.ScaleType.CENTER_CROP);transitionCover.setAlpha(0);root.addView(transitionCover,new FrameLayout.LayoutParams(-1,-1));video.setCover(transitionCover);
         scene = new GlassScene(this, wallpaper);
+        video.setMovieListener(id->{getPreferences(0).edit().putString("movie",id).apply();scene.invalidate();});
         root.addView(scene, new FrameLayout.LayoutParams(-1, -1));
-        video.setFrameListener(frame -> scene.useVideoFrame(frame));
+        video.setFrameListener(frame -> {scene.useVideoFrame(frame);if(appsOverlay!=null)appsOverlay.updateBackdrop(frame);if(optionsOverlay!=null)optionsOverlay.updateBackdrop();});
         setContentView(root);
         // Create the app-specific directory so ADB can copy a local video without media permissions.
         getExternalFilesDir(null);
@@ -64,9 +66,13 @@ public final class GlassHomeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         HomeRouting.ensure(this,"home resumed");
+        HomeGuardService.glassVisible();
         resumed = true;
+        if(appsCatalog!=null)appsCatalog.cancel(true);
+        appsCatalog=AppsOverlay.warmApplications(this);
         scene.startClock();
         video.setPlaybackEnabled(getPreferences(0).getBoolean("video", true));
+        video.setRotation(wallpaperRotation());video.select(getPreferences(0).getString("movie","hawaii"));
         video.start();
     }
 
@@ -78,13 +84,33 @@ public final class GlassHomeActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if(appsOverlay!=null)appsOverlay.dismissImmediately();
+        if(optionsOverlay!=null)optionsOverlay.dismissImmediately();
+        if(appsCatalog!=null)appsCatalog.cancel(true);
         video.close();
         scene.close();
+        for(Bitmap cover:covers.values())cover.recycle();covers.clear();
         wallpaper.recycle();
         super.onDestroy();
     }
 
     @Override public void onBackPressed() { scene.focusApp(0); }
+
+    @Override protected void onNewIntent(Intent intent){
+        super.onNewIntent(intent);
+        if(appsOverlay!=null)appsOverlay.dismissImmediately();
+        if(optionsOverlay!=null)optionsOverlay.dismissImmediately();
+        scene.focusApp(0);
+    }
+
+    void appsOverlayClosed(AppsOverlay overlay){
+        if(appsOverlay==overlay)appsOverlay=null;
+        scene.focusControl(4);
+    }
+
+    void setAppsExpansion(float amount){scene.setAlpha(1-Math.max(0,Math.min(1,amount)));}
+    void setAppsMotion(boolean moving){video.setSamplingPaused(moving);}
+    void optionsClosed(OptionsOverlay overlay){if(optionsOverlay==overlay)optionsOverlay=null;scene.focusControl(overlay.focusReturn);}
 
     boolean isInstalled(int index) {
         if (index == 2) return getPackageManager().getLaunchIntentForPackage(PACKAGES[2]) != null;
@@ -113,12 +139,17 @@ public final class GlassHomeActivity extends Activity {
             open(target);
         } else if (index == 4) allApps();
         else if (index == 5) wallpaperOptions();
-        else if (index == 6) openSettings(true);
-        else openSettings(false);
+        else if (index == 6) systemOptions(true);
+        else if (index == 9) inputsOptions();
+        else systemOptions(false);
     }
 
     private void open(Intent intent) {
-        try { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+        try {
+            ActivityOptions options=ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(android.view.Display.DEFAULT_DISPLAY);
+            startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),options.toBundle());
+        }
         catch (RuntimeException ex) {
             new AlertDialog.Builder(this).setTitle("暂时无法打开")
                     .setMessage("电视系统没有提供可用的入口，请从原桌面打开该应用。")
@@ -126,7 +157,7 @@ public final class GlassHomeActivity extends Activity {
         }
     }
 
-    private void openSettings(boolean wifi) {
+    void openSettings(boolean wifi) {
         Intent target = new Intent(wifi ? Settings.ACTION_WIFI_SETTINGS : Settings.ACTION_SETTINGS);
         if (target.resolveActivity(getPackageManager()) == null) {
             target = getPackageManager().getLaunchIntentForPackage("com.xiaomi.mitv.settings");
@@ -136,35 +167,39 @@ public final class GlassHomeActivity extends Activity {
     }
 
     private void allApps() {
-        Map<String, ResolveInfo> items = new LinkedHashMap<>();
-        for (String category : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
-            for (ResolveInfo info : getPackageManager().queryIntentActivities(
-                    new Intent(Intent.ACTION_MAIN).addCategory(category), 0)) {
-                if (!info.activityInfo.packageName.equals(getPackageName())) items.putIfAbsent(info.activityInfo.packageName, info);
-            }
-        }
-        List<ResolveInfo> apps = new ArrayList<>(items.values());
-        Collections.sort(apps, (a,b) -> a.loadLabel(getPackageManager()).toString()
-                .compareTo(b.loadLabel(getPackageManager()).toString()));
-        String[] labels = new String[apps.size()];
-        for (int i=0; i<apps.size(); i++) labels[i] = apps.get(i).loadLabel(getPackageManager()).toString();
-        new AlertDialog.Builder(this).setTitle("全部应用").setItems(labels, (dialog, which) -> {
-            ResolveInfo app = apps.get(which);
-            open(new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(app.activityInfo.packageName, app.activityInfo.name)));
-        }).setNegativeButton("返回", null).show();
+        if(appsOverlay!=null)return;
+        appsOverlay=new AppsOverlay(this,app->{
+            if(app.activityInfo.packageName.equals("com.mitv.tvhome")){HomeGuardService.openStockHome();return;}
+            open(new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(app.activityInfo.packageName,app.activityInfo.name)));
+        });
+        appsOverlay.show();
     }
 
     private void wallpaperOptions() {
-        boolean dynamic = getPreferences(0).getBoolean("video", true);
-        new AlertDialog.Builder(this).setTitle("壁纸")
-                .setSingleChoiceItems(new String[]{"夏威夷海岸 · Apple TV 4K 航拍", "暮色山海 · 静态壁纸"}, dynamic ? 0 : 1, (dialog, which) -> {
-                    boolean enabled = which == 0;
-                    getPreferences(0).edit().putBoolean("video", enabled).apply();
-                    video.setPlaybackEnabled(enabled);
-                    if (!enabled) scene.useStill();
-                    else if (resumed) video.start();
-                    dialog.dismiss();
-                }).setNegativeButton("返回", null).show();
+        if(optionsOverlay!=null)return;optionsOverlay=new WallpaperOverlay(this);optionsOverlay.show();
+    }
+
+    private void inputsOptions(){if(optionsOverlay!=null)return;optionsOverlay=new InputsOverlay(this,InputsOverlay.available(this));optionsOverlay.show();}
+    private void systemOptions(boolean wifi){if(optionsOverlay!=null)return;optionsOverlay=new SystemMenuOverlay(this,wifi);optionsOverlay.show();}
+    String networkSummary(){ConnectivityManager cm=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);android.net.NetworkCapabilities c=cm==null?null:cm.getNetworkCapabilities(cm.getActiveNetwork());return c==null?"未连接网络":c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)?"Wi-Fi 已连接":"网络已连接";}
+    String networkAddress(){ConnectivityManager cm=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);android.net.LinkProperties p=cm==null?null:cm.getLinkProperties(cm.getActiveNetwork());if(p!=null)for(android.net.LinkAddress a:p.getLinkAddresses())if(a.getAddress() instanceof java.net.Inet4Address&&!a.getAddress().isLoopbackAddress())return a.getAddress().getHostAddress();return "—";}
+    void openInput(String inputId){
+        // This firmware needs Xiaomi's numeric source, rather than the standard passthrough URI.
+        String hardware=inputId.substring(inputId.lastIndexOf("/HW")+3);
+        try{int port=Integer.parseInt(hardware);open(new Intent("com.xiaomi.mitv.tvplayer.EXTSRC_PLAY").setComponent(new ComponentName("com.xiaomi.mitv.tvplayer","com.xiaomi.mitv.tvplayer.ExternalSourceActivity")).putExtra("input",port+18));}
+        catch(NumberFormatException unknown){open(new Intent(Intent.ACTION_VIEW).setDataAndType(android.media.tv.TvContract.buildChannelUriForPassthroughInput(inputId),"vnd.android.cursor.item/channel"));}
+    }
+    boolean dynamicWallpaper(){return getPreferences(0).getBoolean("video",true);}
+    String selectedWallpaper(){return dynamicWallpaper()?getPreferences(0).getString("movie","hawaii"):"dusk";}
+    Bitmap wallpaperCover(WallpaperCatalog.Item item){if(!item.dynamic)return wallpaper;if(covers.containsKey(item.id))return covers.get(item.id);int id=getResources().getIdentifier("wp_"+item.id.replace('-','_'),"drawable",getPackageName());Bitmap cover=id==0?null:BitmapFactory.decodeResource(getResources(),id);if(cover==null)return wallpaper;covers.put(item.id,cover);return cover;}
+    boolean wallpaperRotation(){return getPreferences(0).getBoolean("wallpaper_rotation",false);}
+    void setWallpaperRotation(boolean enabled){getPreferences(0).edit().putBoolean("wallpaper_rotation",enabled).apply();video.setRotation(enabled);}
+    void chooseWallpaper(WallpaperCatalog.Item item){
+        if(!item.available(this)){Toast.makeText(this,"壁纸素材尚未就绪",Toast.LENGTH_SHORT).show();return;}
+        getPreferences(0).edit().putBoolean("video",item.dynamic).apply();
+        if(item.dynamic){getPreferences(0).edit().putString("movie",item.id).apply();video.select(item.id);video.setPlaybackEnabled(true);if(resumed)video.start();}
+        else{video.setPlaybackEnabled(false);scene.useStill();}
+        scene.invalidate();
     }
 
     boolean online() {

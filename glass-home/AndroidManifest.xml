@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.gathin.glasshome" android:versionCode="3" android:versionName="1.2">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.gathin.glasshome" android:versionCode="7" android:versionName="1.5">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -13,6 +13,7 @@
         <package android:name="com.xiaomi.mitv.settings" />
         <package android:name="com.netflix.ninja" />
         <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.xiaomi.mitv.appstore" />
     </queries>
     <application android:name="com.gathin.glasshome.GlassApplication" android:label="玻璃桌面" android:icon="@drawable/home_icon" android:banner="@drawable/wallpaper" android:allowBackup="false" android:theme="@style/GlassTheme" android:hardwareAccelerated="true">
         <receiver android:name="com.gathin.glasshome.RoutingReceiver" android:exported="true" android:permission="android.permission.WRITE_SECURE_SETTINGS">

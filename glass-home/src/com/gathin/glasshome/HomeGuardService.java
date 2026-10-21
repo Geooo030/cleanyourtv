@@ -27,6 +27,9 @@ public final class HomeGuardService extends AccessibilityService {
     }
 
     static void wakeIfConnected(){if(current!=null)current.scheduleWake();}
+    static void glassVisible(){
+        if(current!=null){current.visitingStock=false;current.filterHome(false);}
+    }
     private void scheduleWake(){
         visitingStock=false;
         handler.removeCallbacksAndMessages(null);

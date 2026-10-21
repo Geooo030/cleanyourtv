@@ -8,3 +8,10 @@ export function resolveRemoteKey(key) {
   if (typeof key !== 'string' || !Object.hasOwn(REMOTE_KEYS, key)) throw new Error('不支持的遥控按键');
   return REMOTE_KEYS[key];
 }
+
+export function remoteCommand(key) {
+  const code = resolveRemoteKey(key);
+  return key === 'HOME'
+    ? ['shell', 'am', 'start', '-n', 'com.gathin.glasshome/.GlassHomeActivity']
+    : ['shell', 'input', 'keyevent', String(code)];
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "hawaii",
+    "name": "Hawaii",
+    "url": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_H007_C003_PS_v01_SDR_PS_20180925_SDR_4K_HEVC.mov",
+    "format": "4K HEVC SDR",
+    "cover": "res/drawable-nodpi/wp_hawaii.jpg",
+    "cover_frame": "first decoded video frame"
+  },
+  {
+    "id": "earth-aurora",
+    "name": "North America Aurora",
+    "url": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_GMT314_139M_170NC_NORTH_AMERICA_AURORA__COMP_v22_SDR_20181206_v12CC_SDR_2K_HEVC.mov",
+    "format": "1080p HEVC SDR",
+    "cover": "res/drawable-nodpi/wp_earth_aurora.jpg",
+    "cover_frame": "first decoded video frame"
+  },
+  {
+    "id": "scotland",
+    "name": "Scotland",
+    "url": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/S003_C020_SDR_2K_HEVC.mov",
+    "format": "1080p HEVC SDR",
+    "cover": "res/drawable-nodpi/wp_scotland.jpg",
+    "cover_frame": "first decoded video frame"
+  },
+  {
+    "id": "san-francisco",
+    "name": "San Francisco",
+    "url": "https://sylvan.apple.com/itunes-assets/Aerials116/v4/5f/8d/d7/5f8dd7a6-37aa-cf2f-8b06-931ea6a4054f/comp_A007_C017_01156B_v02_SDR_PS_20180925_SDR_2K_HEVC.mov",
+    "format": "1080p HEVC SDR",
+    "cover": "res/drawable-nodpi/wp_san_francisco.jpg",
+    "cover_frame": "first decoded video frame"
+  }
+]

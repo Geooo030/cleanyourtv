@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LiveDecoder } from './decoder';
 import './styles.css';
-import { Desktop } from './Desktop';
+import { Monitor } from './Monitor';
 
 
 function App() {
@@ -83,6 +83,6 @@ function App() {
   const live = active && ready && status.phase === 'streaming' && !error;
   const phaseText = live ? '正在同步' : !active ? '已暂停' : error ? '等待连接' : '连接中';
 
-  return <Desktop {...{ status, ip, setIp, active, setActive, ready, error, busy, stats, toast, pressedKey, canvas, viewer, supported, live, phaseText, connect, screenshot, fullscreen, remoteKey, keyboardRemote, notify }} />;
+  return <Monitor {...{ status, ip, setIp, active, setActive, ready, error, busy, stats, toast, pressedKey, canvas, viewer, supported, live, phaseText, connect, screenshot, fullscreen, remoteKey, keyboardRemote, notify }} />;
 }
 createRoot(document.getElementById('root')).render(<App/>);
