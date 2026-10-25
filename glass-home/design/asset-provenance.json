@@ -4,6 +4,12 @@
     "method": "built-in image_gen.imagegen",
     "prompt": "Use case: photorealistic-natural. Asset type: background wallpaper for a premium 16:9 television home screen, 1920x1080 or higher wide landscape. Create a cinematic photographic aerial view of a quiet coastal fjord at blue hour after sunset. Layered hazy indigo mountain silhouettes on the distant right, dark still water across the bottom, a very subtle lavender pink sunset ribbon on the horizon, dusky steel blue sky with smooth atmospheric gradients. A minimal, refined, calm, high-end TV aerial screensaver atmosphere. The upper left and middle left should have clean dark blue negative space for large white interface text; the lower middle should be softly textured dark water where transparent glass app cards can sit. Realistic subtle photographic texture and tonal depth, soft natural light, rich navy and muted violet colors, restrained luminous horizon. No people, no boats, no buildings, no trees in foreground, no stars, no logos, no text, no interface, no card shapes, no mockup frame. Edge-to-edge landscape photograph."
   },
+  "gogo": {
+    "file": "res/drawable-nodpi/wp_gogo.jpg",
+    "source": "User-provided background/static/gogo.jpg",
+    "method": "Proportional JPEG resize from 6240x4160 to 1920x1280; center crop at display time",
+    "license": "User-provided photo; excluded from the source code license"
+  },
   "fonts": [
     {
       "family": "Inter",

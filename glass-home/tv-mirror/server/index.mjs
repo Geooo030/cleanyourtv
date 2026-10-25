@@ -9,6 +9,7 @@ const production = process.argv.includes('--production');
 const session = new MirrorSession();
 const clients = new Set();
 let idleTimer;
+let paused = false;
 const allowedOrigins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
 const allowed = req => !req.headers.origin || allowedOrigins.has(req.headers.origin);
 const sendJson = (res, code, data) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
@@ -18,6 +19,13 @@ const server = http.createServer(async (req, res) => {
     if (!allowed(req) || req.headers['sec-fetch-site'] === 'cross-site') return sendJson(res, 403, { error: 'Only local application requests are allowed' });
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     if (url.pathname === '/api/status' && req.method === 'GET') return sendJson(res, 200, session.snapshot());
+    // APK replacement restarts Android surfaces; stop the encoder before updating.
+    if (url.pathname === '/api/pause' && req.method === 'POST') {
+      paused = true; await session.stop(); return sendJson(res, 200, session.snapshot());
+    }
+    if (url.pathname === '/api/resume' && req.method === 'POST') {
+      paused = false; if (clients.size) void session.start(); return sendJson(res, 200, session.snapshot());
+    }
     if (url.pathname === '/api/key' && req.method === 'POST') {
       let body = '';
       for await (const chunk of req) { body += chunk; if (body.length > 1024) return sendJson(res, 413, { error: 'Request too large' }); }
@@ -29,6 +37,7 @@ const server = http.createServer(async (req, res) => {
       let body = '';
       for await (const chunk of req) { body += chunk; if (body.length > 4096) return sendJson(res, 413, { error: 'Request too large' }); }
       await session.configure(JSON.parse(body));
+      paused = false;
       if (clients.size) void session.start();
       return sendJson(res, 200, session.snapshot());
     }
@@ -52,7 +61,7 @@ wss.on('connection', ws => {
   clearTimeout(idleTimer); clients.add(ws);
   ws.send(JSON.stringify({ type: 'status', ...session.snapshot() }));
   if (session.codecPacket) ws.send(session.codecPacket);
-  void session.start();
+  if (!paused) void session.start();
   ws.on('error', () => {});
   ws.on('close', () => { clients.delete(ws); if (!clients.size) idleTimer = setTimeout(() => void session.stop(), 1500); });
 });

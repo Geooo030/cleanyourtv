@@ -27,6 +27,8 @@ public final class HomeGuardService extends AccessibilityService {
     }
 
     static void wakeIfConnected(){if(current!=null)current.scheduleWake();}
+    static boolean sleepScreen(){return current!=null&&android.os.Build.VERSION.SDK_INT>=28&&current.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);}
+    static boolean showPowerMenu(){return current!=null&&current.performGlobalAction(GLOBAL_ACTION_POWER_DIALOG);}
     static void glassVisible(){
         if(current!=null){current.visitingStock=false;current.filterHome(false);}
     }

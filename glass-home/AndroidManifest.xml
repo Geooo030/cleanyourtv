@@ -1,21 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.gathin.glasshome" android:versionCode="7" android:versionName="1.5">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.gathin.glasshome" android:versionCode="30" android:versionName="1.10.2">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <queries>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
         <package android:name="com.xiaomi.mitv.smartshare" />
         <package android:name="com.xiaomi.mitv.settings" />
-        <package android:name="com.netflix.ninja" />
-        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.ktcp.video" />
         <package android:name="com.xiaomi.mitv.appstore" />
     </queries>
-    <application android:name="com.gathin.glasshome.GlassApplication" android:label="玻璃桌面" android:icon="@drawable/home_icon" android:banner="@drawable/wallpaper" android:allowBackup="false" android:theme="@style/GlassTheme" android:hardwareAccelerated="true">
+    <application android:name="com.gathin.glasshome.GlassApplication" android:label="玻璃桌面" android:icon="@drawable/home_icon" android:banner="@drawable/wallpaper" android:allowBackup="false" android:theme="@style/GlassTheme" android:hardwareAccelerated="true" android:networkSecurityConfig="@xml/network_security">
+        <receiver android:name="com.gathin.glasshome.MusicConfigReceiver" android:exported="true" android:permission="android.permission.WRITE_SECURE_SETTINGS" />
         <receiver android:name="com.gathin.glasshome.RoutingReceiver" android:exported="true" android:permission="android.permission.WRITE_SECURE_SETTINGS">
             <intent-filter><action android:name="com.gathin.glasshome.CONFIGURE_ROUTING" /></intent-filter>
         </receiver>

@@ -9,13 +9,15 @@ final class WallpaperCatalog {
         Item(String id,String name,String detail,String tag,boolean dynamic){this.id=id;this.name=name;this.detail=detail;this.tag=tag;this.dynamic=dynamic;}
         File file(Context context){return new File(context.getExternalFilesDir(null),id.equals("hawaii")?"aerial.mov":id+".mov");}
         boolean available(Context context){return !dynamic||file(context).isFile();}
+        int imageResource(Context context){return id.equals("dusk")?R.drawable.wallpaper:context.getResources().getIdentifier("wp_"+id.replace('-','_'),"drawable",context.getPackageName());}
     }
     static final Item[] ITEMS={
         new Item("hawaii","夏威夷海岸","海浪、瀑布与青绿山脊，\n沿着夏威夷海岸缓缓舒展。","HAWAIʻI / AERIAL",true),
         new Item("san-francisco","旧金山海湾","越过海湾与城市的轮廓，\n把熟悉的 Apple TV 航拍带到客厅。","SAN FRANCISCO / AERIAL",true),
         new Item("earth-aurora","地球 · 北美极光","从太空俯瞰夜色中的地球，\n极光沿着弧形地平线流动。","EARTH / AURORA",true),
         new Item("scotland","苏格兰高地","掠过开阔的山峦与湖泊，\n在缓慢的镜头里感受辽阔。","SCOTLAND / AERIAL",true),
-        new Item("dusk","暮色山海","暮色落在群山与海面之间，\n留下一段安静的时光。","DUSK / STILL",false)
+        new Item("dusk","暮色山海","暮色落在群山与海面之间，\n留下一段安静的时光。","DUSK / STILL",false),
+        new Item("gogo","GOGO","毛茸茸的小伙伴，\n在玩具世界里开启快乐的一天。","GOGO / STILL",false)
     };
     static Item find(String id){for(Item item:ITEMS)if(item.id.equals(id))return item;return ITEMS[0];}
     static List<Item> list(boolean dynamic){List<Item> list=new ArrayList<>();for(Item item:ITEMS)if(item.dynamic==dynamic)list.add(item);return list;}

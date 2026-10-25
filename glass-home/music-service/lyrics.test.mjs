@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {parseLyrics} from './lyrics.mjs';
+test('word times and line times are retained',()=>{const result=parseLyrics({yrc:{lyric:'[1000,1200](1000,400,0)Hello (1400,800,0)world'}});assert.equal(result.wordTimed,true);assert.equal(result.lines[0].text,'Hello world');assert.equal(result.lines[0].words[1].start,1400);assert.equal(result.lines[0].end,2200);});
+test('multiple LRC timestamps, fractions and offsets',()=>{const r=parseLyrics({lrc:{lyric:'[offset:-50]\n[00:01.25][00:03.5]Example\n[00:06]Next'}});assert.deepEqual(r.lines.map(l=>l.start),[1200,3450,5950]);assert.equal(r.lines[0].end,3450);assert.equal(r.wordTimed,false);});
+test('instrumental or missing lyrics stay empty',()=>{assert.deepEqual(parseLyrics({nolyric:true}).lines,[]);assert.deepEqual(parseLyrics({lrc:{lyric:'[ar:Example]\nmetadata'}}).lines,[]);});

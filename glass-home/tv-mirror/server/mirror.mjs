@@ -21,7 +21,7 @@ const adb = process.env.ADB_PATH || bundledAdb || 'adb';
 const serverJar = resolve(import.meta.dirname, '../vendor/scrcpy-server-v5.0.1');
 
 export class MirrorSession extends EventEmitter {
-  config = { ip: process.env.TV_HOST || '192.168.31.81', port: 5555, quality: '1080' };
+  config = { ip: process.env.TV_HOST || '192.168.31.81', port: 5555, quality: process.env.TV_MIRROR_QUALITY || '1080' };
   state = { phase: 'idle', message: '准备就绪，连接电视即可开始同步', model: '', width: 0, height: 0, bytes: 0, frames: 0, startedAt: null, protected: false, protectedApp: '' };
   inspectingWindow = false;
   async inspectWindow() {
@@ -57,8 +57,14 @@ export class MirrorSession extends EventEmitter {
     // Injected HOME bypasses the accessibility key filter on Xiaomi firmware.
     // Open our home explicitly so the web remote matches the physical remote.
     const generation = this.generation;
-    const run = this.control(() => {
+    const run = this.control(async () => {
       if (generation !== this.generation) throw new Error('连接已改变，请重新操作');
+      if (name === 'HOME') {
+        // Xiaomi settings are a SYSTEM_DIALOG over the resumed activity. Starting
+        // Glass alone leaves that dialog visible, so dismiss it as Home would.
+        await this.device(['shell', 'am', 'broadcast', '-a', 'android.intent.action.CLOSE_SYSTEM_DIALOGS', '--es', 'reason', 'homekey'], 5000);
+        if (generation !== this.generation) throw new Error('连接已改变，请重新操作');
+      }
       return this.device(args, 5000);
     });
     try { await run; if (name === 'HOME') this.update({ protected: false, protectedApp: '' }); } finally { this.pendingKeys--; }

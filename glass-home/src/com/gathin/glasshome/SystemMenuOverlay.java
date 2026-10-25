@@ -13,18 +13,17 @@ final class SystemMenuOverlay extends OptionsOverlay {
         if(wifi){
             panel.addView(label(owner.networkSummary(),25,Color.WHITE,medium),box(30,92,460,45));
             panel.addView(label("IP  "+owner.networkAddress(),18,0xbbffffff,regular),box(30,150,460,38));
-            panel.addView(label("选择网络或输入密码，请打开网络设置",16,0x99ffffff,regular),box(30,203,465,32));
-            row("网络设置",R.drawable.ic_wifi,260,()->owner.openSettings(true)).requestFocus();
+            View network=row("网络设置",R.drawable.ic_wifi,260,()->owner.openSettings(true));panel.post(network::requestFocusFromTouch);
         }else{
             View a=row("壁纸",0,82,()->owner.activate(5));View b=row("全部应用",0,170,()->owner.activate(4));View c=row("电视系统设置",R.drawable.ic_settings,258,()->owner.openSettings(false));
-            a.setNextFocusDownId(b.getId());b.setNextFocusUpId(a.getId());b.setNextFocusDownId(c.getId());c.setNextFocusUpId(b.getId());panel.post(a::requestFocus);
+            a.setNextFocusDownId(b.getId());b.setNextFocusUpId(a.getId());b.setNextFocusDownId(c.getId());c.setNextFocusUpId(b.getId());panel.post(a::requestFocusFromTouch);
         }
     }
     private View row(String title,int iconRes,float y,Runnable action){
         FrameLayout row=new FrameLayout(owner);row.setId(View.generateViewId());row.setFocusable(true);row.setClickable(true);row.setContentDescription(title);panel.addView(row,box(12,y,506,74));
         TextView text=label(title,24,Color.WHITE,medium);panelX(row,text,74,12,385,50);
         ImageView icon=new ImageView(owner);if(iconRes!=0)icon.setImageResource(iconRes);else icon.setImageResource(title.equals("壁纸")?R.drawable.ic_wallpaper:R.drawable.ic_apps);panelX(row,icon,23,22,28,28);
-        row.setOnFocusChangeListener((v,f)->{row.setBackground(surface(f?0xeeffffff:0,0,px(22)));text.setTextColor(f?0xff18202a:Color.WHITE);icon.setColorFilter(f?0xff18202a:Color.WHITE);});row.setOnClickListener(v->{afterClose=action;dismiss();});return row;
+        row.setOnFocusChangeListener((v,f)->{row.setBackground(surface(f?0xeeffffff:0,0,px(22)));text.setTextColor(f?0xff18202a:Color.WHITE);icon.setColorFilter(f?0xff18202a:Color.WHITE);if(f)hint(title+(wifi?" · 确认选择网络或输入密码":" · 确认打开"));});row.setOnClickListener(v->{afterClose=action;dismiss();});return row;
     }
     private void panelX(FrameLayout parent,View child,float x,float y,float w,float h){parent.addView(child,box(x,y,w,h));}
 }

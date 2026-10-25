@@ -44,6 +44,7 @@ final class AppsOverlay extends Dialog {
     private final List<Entry> entries=new ArrayList<>();
     private final Typeface regular,medium;
     private FrameLayout panel;
+    private FocusHintView focusHint;
     private SmoothAppsGrid grid;
     private FrameLayout iconContent;
     private TextView close;
@@ -65,7 +66,7 @@ final class AppsOverlay extends Dialog {
         super(owner);this.owner=owner;this.launch=launch;
         regular=GlassFonts.create(owner,400);medium=GlassFonts.create(owner,500);
         setOnDismissListener(d->{
-            disposed=true;loader.shutdownNow();if(grid!=null)grid.stopMotion();
+            disposed=true;if(focusHint!=null)focusHint.release();loader.shutdownNow();if(grid!=null)grid.stopMotion();
             if(motion!=null){motion.removeAllListeners();motion.cancel();}
             owner.setAppsExpansion(0);owner.setAppsMotion(false);
             owner.appsOverlayClosed(this);
@@ -86,6 +87,8 @@ final class AppsOverlay extends Dialog {
         panel.setBackground(new GlassPanelDrawable(s,screenW,screenH,owner.scene));
         FrameLayout.LayoutParams panelParams=new FrameLayout.LayoutParams(px(1510),px(868),Gravity.CENTER);
         root.addView(panel,panelParams);
+        focusHint=FocusHintView.attach(owner,root,screenW,screenH);
+        focusHint.showHint("全部应用 · 方向键选择，确认打开，返回关闭");
         TextView title=label("全部应用",34,Color.WHITE,medium);
         panel.addView(title,box(52,40,600,55));
         count=label("正在整理应用…",17,0xaaffffff,regular);
@@ -94,7 +97,7 @@ final class AppsOverlay extends Dialog {
         close.setGravity(Gravity.CENTER);close.setId(View.generateViewId());
         close.setContentDescription("关闭全部应用");close.setFocusable(true);close.setClickable(true);
         close.setBackground(closeBackground(false));
-        close.setOnFocusChangeListener((v,f)->{close.setBackground(closeBackground(f));close.setTextColor(f?0xff14242e:0xe6ffffff);});
+        close.setOnFocusChangeListener((v,f)->{close.setBackground(closeBackground(f));close.setTextColor(f?0xff14242e:0xe6ffffff);if(f)focusHint.showHint("全部应用 · 确认或返回关闭");});
         close.setOnClickListener(v->dismiss());
         panel.addView(close,box(1406,42,52,52));
         grid=new SmoothAppsGrid();grid.setId(View.generateViewId());
@@ -102,8 +105,6 @@ final class AppsOverlay extends Dialog {
         iconContent=new FrameLayout(owner);iconContent.setClipChildren(false);iconContent.setClipToPadding(false);
         grid.addView(iconContent,new android.widget.ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,px(606)));
         panel.addView(grid,box(35,160,1440,610));
-        TextView hint=label("方向键选择  ·  确认键打开  ·  返回键关闭",16,0x9effffff,regular);
-        panel.addView(hint,box(54,801,1050,30));
         page=label("",15,0x88ffffff,regular);page.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
         panel.addView(page,box(1236,801,220,30));
         setContentView(root);
@@ -132,7 +133,7 @@ final class AppsOverlay extends Dialog {
                 count.setText(loaded.size()+" 个应用");
                 grid.post(()->{
                     if(disposed||closing)return;
-                    if(!loaded.isEmpty()){tiles.get(0).requestFocus();updateSelection();}
+                    if(!loaded.isEmpty()){tiles.get(0).requestFocusFromTouch();updateSelection();}
                     // Lay out and upload the icon layer before its first moving frame.
                     panel.setLayerType(View.LAYER_TYPE_HARDWARE,null);panel.buildLayer();animateExpansion(true);
                 });
@@ -172,7 +173,7 @@ final class AppsOverlay extends Dialog {
         for(int i=0;i<entries.size();i++){
             final int position=i;AppTile tile=new AppTile();tile.bind(entries.get(i));tile.setId(View.generateViewId());tile.setFocusable(true);tile.setClickable(true);
             iconContent.addView(tile,box(16+(i%6)*(1422f/6),14+(i/6)*196,1422f/6-22,180));tiles.add(tile);
-            tile.setOnFocusChangeListener((v,focused)->{if(focused){selectedPosition=position;grid.reveal(position);}tile.highlight(focused);updateSelection();});
+            tile.setOnFocusChangeListener((v,focused)->{if(focused){selectedPosition=position;grid.reveal(position);focusHint.showHint(entries.get(position).label+" · 确认打开，返回关闭");}tile.highlight(focused);updateSelection();});
             tile.setOnClickListener(v->launchAt(position));tile.setOnKeyListener((v,key,event)->{
                 if(key<KeyEvent.KEYCODE_DPAD_UP||key>KeyEvent.KEYCODE_DPAD_RIGHT)return false;
                 if(event.getAction()==KeyEvent.ACTION_DOWN)moveSelection(key);return true;

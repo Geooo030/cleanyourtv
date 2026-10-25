@@ -28,8 +28,8 @@ import java.util.Locale;
 final class GlassScene extends ViewGroup {
     private static final float W=1920, H=1080;
     private static final String[] FOOTER={"全部应用", "动态壁纸", "网络", "设置"};
-    private static final String[] SUB={"bilibili", "NETEASE CLOUD MUSIC", "SCREEN MIRRORING", "NETFLIX"};
-    private static final String[] HERO={"让喜欢的，成为日常。", "让音乐，填满此刻。", "小屏精彩，大屏分享。", "今晚，看一部好电影。"};
+    private static final String[] SUB={"bilibili", "APPLE MUSIC", "SCREEN MIRRORING", "云视听极光"};
+    private static final String[] HERO={"让喜欢的，成为日常。", "喜欢的音乐，留在客厅。", "小屏精彩，大屏分享。", "今晚，看一部好电影。"};
     private static final String[] DETAILS={"看见有趣的世界，发现你的热爱。", "熟悉的旋律，在客厅慢慢响起。", "把手机里的精彩，带到大屏幕。", "好故事，值得留一整晚。"};
     private static final int[] ACCENTS={0xffff8eb4,0xffff8c96,0xff8edcff,0xffeb6678};
     private final GlassHomeActivity owner;
@@ -37,22 +37,26 @@ final class GlassScene extends ViewGroup {
     private final RectF full=new RectF(0,0,W,H);
     private final RectF[] boxes=new RectF[10];
     private final View[] nodes=new View[10];
-    private final Drawable[] icons=new Drawable[2];
+    private final Drawable[] icons=new Drawable[4];
     private final Drawable[] topIcons=new Drawable[3];
     private Drawable stockHomeIcon;
     private final Typeface regular;
     private final Typeface light;
     private final Typeface medium;
+    private final Typeface clockFont;
     private final float[] weights={1,0,0,0,0,0,0,0,0,0};
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final Bitmap stillBlur;
     private final Bitmap videoBlur=Bitmap.createBitmap(240,135,Bitmap.Config.ARGB_8888);
-    private final int[] rgb=new int[240*135], scratch=new int[240*135];
+    private String musicCardState="";
+    private final Paint bitmapPaint=new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Shader sideShade=new LinearGradient(0,0,W,0,new int[]{0x69051020,0x15051020,0x05051020},null,Shader.TileMode.CLAMP);
+    private final Shader bottomShade=new LinearGradient(0,470,0,H,new int[]{0x00071322,0x24071322,0x68071322},null,Shader.TileMode.CLAMP);
     private boolean dynamic;
     private int selected=0,hero=0;
-    private float scale=1,offsetX,offsetY,lightX=354;
+    private float scale=1,offsetX,offsetY;
     private float topFocusX=1410,topFocusWeight;
-    private ValueAnimator focusAnimation,lightAnimation;
+    private ValueAnimator focusAnimation;
     private final Runnable clock=new Runnable() {
         @Override public void run() { invalidate(); handler.postDelayed(this,60000-System.currentTimeMillis()%60000); }
     };
@@ -63,13 +67,13 @@ final class GlassScene extends ViewGroup {
         regular=GlassFonts.create(owner,400);
         light=GlassFonts.create(owner,300);
         medium=GlassFonts.create(owner,500);
+        clockFont=GlassFonts.create(owner,600);
         setWillNotDraw(false);
+        setLayerType(View.LAYER_TYPE_HARDWARE,null);
         setClipChildren(false);
         setFocusable(false);
-        Bitmap small=Bitmap.createScaledBitmap(background,240,135,true);
         stillBlur=Bitmap.createBitmap(240,135,Bitmap.Config.ARGB_8888);
-        blur(small,stillBlur);
-        small.recycle();
+        updateStill(background);
         for(int i=0;i<10;i++) {
             final int index=i;
             if(i<4) boxes[i]=new RectF(148+i*414,716,148+i*414+370,914);
@@ -78,7 +82,7 @@ final class GlassScene extends ViewGroup {
             else if(i==6)boxes[i]=new RectF(1592,116,1668,192);
             else if(i==7)boxes[i]=new RectF(1702,116,1778,192);
             else boxes[i]=new RectF(130+(i-4)*230,987,340+(i-4)*230,1045);
-            nodes[i]=new View(owner) {
+            nodes[i]=i<4?new AppCardNode(owner,i):new View(owner) {
                 @Override protected void drawableStateChanged(){ super.drawableStateChanged(); GlassScene.this.invalidate(); }
             };
             nodes[i].setFocusable(true);
@@ -86,29 +90,37 @@ final class GlassScene extends ViewGroup {
             nodes[i].setContentDescription(i<4?GlassHomeActivity.LABELS[i]:i==8?"小米原主页":i==9?"HDMI 信号源":FOOTER[i-4]);
             nodes[i].setOnFocusChangeListener((v,focused)-> { if(focused) select(index); });
             nodes[i].setOnClickListener(v->owner.activate(index));
+            nodes[i].setOnHoverListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_HOVER_ENTER)v.requestFocusFromTouch();return false;});
             addView(nodes[i]);
         }
         topIcons[0]=owner.getDrawable(R.drawable.ic_input);topIcons[1]=owner.getDrawable(R.drawable.ic_wifi);topIcons[2]=owner.getDrawable(R.drawable.ic_settings);
         stockHomeIcon=owner.getDrawable(R.drawable.ic_apple);
-        for(int i=0;i<2;i++) {
+        for(int i:new int[]{0,3}) {
             try { icons[i]=owner.getPackageManager().getApplicationIcon(GlassHomeActivity.PACKAGES[i]); }
             catch(Exception ignored) { }
         }
     }
 
-    void startClock(){ handler.removeCallbacks(clock); handler.post(clock); invalidate(); }
+    void startClock(){ handler.removeCallbacks(clock); handler.post(clock);invalidate(); }
+    void musicChanged(){AppCardNode node=(AppCardNode)nodes[1];if(node.beat!=null)node.beat.invalidate();String value=owner.music.playing+":"+(owner.music.current()==null?"":owner.music.current().name);if(!value.equals(musicCardState)){musicCardState=value;node.refreshFace();setLayerType(owner.music.playing?View.LAYER_TYPE_NONE:View.LAYER_TYPE_HARDWARE,null);}}
     void stopClock(){ handler.removeCallbacks(clock); }
-    void close(){ stopClock(); if(focusAnimation!=null)focusAnimation.cancel(); if(lightAnimation!=null)lightAnimation.cancel(); stillBlur.recycle(); videoBlur.recycle(); }
-    void useVideoFrame(Bitmap frame){ blur(frame,videoBlur); dynamic=true; invalidate(); }
+    void close(){ stopClock(); if(focusAnimation!=null){focusAnimation.removeAllListeners();focusAnimation.cancel();}stillBlur.recycle();videoBlur.recycle(); }
+    // The worker supplies an already blurred frame. Home cards never sample this bitmap.
+    void useVideoFrame(Bitmap frame){new Canvas(videoBlur).drawBitmap(frame,0,0,bitmapPaint);dynamic=true;}
     void useStill(){ dynamic=false; invalidate(); }
+    void updateStill(Bitmap background){Bitmap small=Bitmap.createScaledBitmap(background,240,135,true);blurFrame(small,stillBlur,new int[240*135],new int[240*135]);small.recycle();invalidate();}
     Bitmap glassFrame(){return dynamic?videoBlur:stillBlur;}
-    void focusApp(int index){ nodes[Math.max(0,Math.min(3,index))].requestFocus(); }
-    void focusControl(int index){nodes[Math.max(4,Math.min(9,index))].requestFocus();}
+    void focusApp(int index){ nodes[Math.max(0,Math.min(3,index))].requestFocusFromTouch(); }
+    void focusControl(int index){nodes[Math.max(4,Math.min(9,index))].requestFocusFromTouch();}
 
     private void select(int index) {
+        int previous=selected;
         selected=index;
+        owner.appFocused(index);
+        owner.showHomeHint(index<4?GlassHomeActivity.LABELS[index]+" · 确认打开":index==8?"小米原主页 · 确认切换":index==9?"HDMI 信号源 · 确认选择":FOOTER[index-4]+" · 确认打开");
         if(index<4)hero=index;
-        if(focusAnimation!=null)focusAnimation.cancel();
+        if(focusAnimation!=null){focusAnimation.removeAllListeners();focusAnimation.cancel();}
+        setLayerType(View.LAYER_TYPE_NONE,null);
         float[] from=weights.clone();
         float targetTopX=index>=6?boxes[index].centerX():topFocusX;
         float fromTopX=topFocusWeight<.01f?targetTopX:topFocusX,fromTopWeight=topFocusWeight;
@@ -120,17 +132,11 @@ final class GlassScene extends ViewGroup {
             for(int i=0;i<10;i++)weights[i]=from[i]+((i==index?1f:0f)-from[i])*t;
             topFocusX=fromTopX+(targetTopX-fromTopX)*t;
             topFocusWeight=fromTopWeight+((index>=6?1f:0f)-fromTopWeight)*t;
-            invalidate();
+            for(int i=0;i<4;i++)((AppCardNode)nodes[i]).setFocusWeight(weights[i]);
+            if(index>=4||previous>=4)invalidate();
         });
-        focusAnimation.start();
-        if(index<4) {
-            if(lightAnimation!=null)lightAnimation.cancel();
-            lightAnimation=ValueAnimator.ofFloat(lightX,boxes[index].centerX());
-            lightAnimation.setDuration(330);
-            lightAnimation.setInterpolator(new PathInterpolator(.22f,1f,.36f,1f));
-            lightAnimation.addUpdateListener(a->{lightX=(float)a.getAnimatedValue();invalidate();});
-            lightAnimation.start();
-        }
+        focusAnimation.addListener(new android.animation.AnimatorListenerAdapter(){@Override public void onAnimationEnd(android.animation.Animator a){setLayerType(owner.music.playing?View.LAYER_TYPE_NONE:View.LAYER_TYPE_HARDWARE,null);}});
+        invalidate();focusAnimation.start();
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
@@ -165,15 +171,16 @@ final class GlassScene extends ViewGroup {
             RectF box=boxes[i];
             nodes[i].layout(Math.round(offsetX+box.left*scale),Math.round(offsetY+box.top*scale),
                     Math.round(offsetX+box.right*scale),Math.round(offsetY+box.bottom*scale));
+            if(i<4)((AppCardNode)nodes[i]).setFocusWeight(weights[i]);
         }
     }
 
     @Override protected void onDraw(Canvas c) {
         super.onDraw(c);
         c.save(); c.translate(offsetX,offsetY); c.scale(scale,scale);
-        p.setShader(new LinearGradient(0,0,W,0,new int[]{0x69051020,0x15051020,0x05051020},null,Shader.TileMode.CLAMP));
+        p.setColor(Color.WHITE);p.setShader(sideShade);
         p.setStyle(Paint.Style.FILL); c.drawRect(full,p);
-        p.setShader(new LinearGradient(0,470,0,H,new int[]{0x00071322,0x45071322,0xa6071322},null,Shader.TileMode.CLAMP));
+        p.setShader(bottomShade);
         c.drawRect(full,p); p.setShader(null);
         header(c);
         text(c,SUB[hero],136,443,16,0xa6ffffff,medium,Paint.Align.LEFT);
@@ -181,14 +188,8 @@ final class GlassScene extends ViewGroup {
         text(c,HERO[hero],134,598,25,0xcfffffff,regular,Paint.Align.LEFT);
         text(c,"常用应用",136,663,20,0xdfffffff,medium,Paint.Align.LEFT);
         text(c,WallpaperCatalog.find(owner.selectedWallpaper()).tag,1782,663,14,0x99ffffff,regular,Paint.Align.RIGHT);
-        p.setShader(new RadialGradient(lightX,820,400,new int[]{withAlpha(ACCENTS[hero],40),0x00000000},null,Shader.TileMode.CLAMP));
-        c.drawRect(0,620,W,980,p);p.setShader(null);
-        frosted(c,new RectF(120,688,1800,946),43,.46f,0);
-        // Nonfocused cards first. The raised card owns the top visual plane.
-        for(int i=0;i<4;i++)if(i!=selected)card(c,i);
-        if(selected<4)card(c,selected);
+        // Each card is a cached child with its own transform; no second frosted tray.
         for(int i=4;i<6;i++)control(c,i);
-        text(c,"方向键选择 · 确认键打开",1010,1023,17,0x99ffffff,regular,Paint.Align.CENTER);
         text(c,"GLASS HOME",1782,1023,13,0x85ffffff,medium,Paint.Align.RIGHT);
         c.restore();
     }
@@ -197,9 +198,13 @@ final class GlassScene extends ViewGroup {
         Date now=new Date();
         int hour=Integer.parseInt(new SimpleDateFormat("H",Locale.CHINA).format(now));
         text(c,hour<6?"GOOD NIGHT":hour<12?"GOOD MORNING":hour<18?"GOOD AFTERNOON":"GOOD EVENING",132,77,18,0xb3ffffff,medium,Paint.Align.LEFT);
-        text(c,new SimpleDateFormat("HH:mm",Locale.CHINA).format(now),125,183,94,Color.WHITE,light,Paint.Align.LEFT);
-        p.setColor(0x45ffffff);c.drawRect(416,142,417,181,p);
-        text(c,new SimpleDateFormat("M月d日  EEEE",Locale.CHINA).format(now),451,176,23,0xcfffffff,regular,Paint.Align.LEFT);
+        p.setTypeface(clockFont);p.setTextSize(120);p.setFontFeatureSettings("tnum");
+        // Tabular numerals keep the date anchored as hours and minutes change.
+        float dividerX=125+p.measureText("00:00")+36;
+        // The animated digits live in their own small view above this static scene.
+        p.setFontFeatureSettings(null);
+        p.setColor(0x45ffffff);c.drawRect(dividerX,100,dividerX+1,190,p);
+        text(c,new SimpleDateFormat("M月d日  EEEE",Locale.CHINA).format(now),dividerX+34,184,23,0xcfffffff,regular,Paint.Align.LEFT);
         for(int index:new int[]{8,9,6,7})frosted(c,boxes[index],38,.3f,0);
         if(topFocusWeight>.001f){
             float lift=4*topFocusWeight;
@@ -226,35 +231,66 @@ final class GlassScene extends ViewGroup {
     }
 
     private void card(Canvas c,int index) {
-        float f=weights[index],press=nodes[index].isPressed()?0.972f:1f;
         RectF box=boxes[index];
-        c.save();c.translate(0,-10*f);c.scale((1+.045f*f)*press,(1+.045f*f)*press,box.centerX(),box.centerY());
-        if(f>.01f){p.setColor(Color.BLACK);p.setAlpha((int)(45*f));p.setShadowLayer(22,0,15,0x70000000);c.drawRoundRect(box,31,31,p);p.clearShadowLayer();p.setAlpha(255);}
-        frosted(c,box,31,.58f+.30f*f,withAlpha(ACCENTS[index],(int)(6+7*f)));
-        if(f>.01f) {
-            p.setShader(new LinearGradient(box.left,box.top,box.right,box.bottom,new int[]{withAlpha(Color.WHITE,(int)(200*f)),withAlpha(Color.WHITE,(int)(45*f)),withAlpha(Color.WHITE,(int)(105*f))},null,Shader.TileMode.CLAMP));
-            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.7f);c.drawRoundRect(box,31,31,p);p.setStyle(Paint.Style.FILL);p.setShader(null);
-        }
+        frosted(c,box,31,.28f,withAlpha(ACCENTS[index],2));
         float cx=box.centerX(),cy=box.top+88;
-        if(index==3){
-            text(c,"NETFLIX",cx,box.top+111,51,0xffffedf0,medium,Paint.Align.CENTER);
+        if(index==1){
+            MusicArtwork.draw(c,box.left+43,box.top+47,91);
+            text(c,"Apple",box.left+159,box.top+82,30,Color.WHITE,medium,Paint.Align.LEFT);
+            text(c,"Music",box.left+159,box.top+120,30,Color.WHITE,medium,Paint.Align.LEFT);
         } else {
             c.save();c.scale(.85f,.85f,box.left+81,cy);
             appIcon(c,index,box.left+81,cy);c.restore();
-            text(c,index==0?"云视听":index==1?"网易云":"无线",box.left+147,box.top+79,27,Color.WHITE,medium,Paint.Align.LEFT);
-            text(c,index==0?"小电视":index==1?"音乐":"投屏",box.left+147,box.top+116,27,Color.WHITE,medium,Paint.Align.LEFT);
+            text(c,index==0||index==3?"云视听":"无线",box.left+147,box.top+79,27,Color.WHITE,medium,Paint.Align.LEFT);
+            text(c,index==0?"小电视":index==3?"极光":"投屏",box.left+147,box.top+116,27,Color.WHITE,medium,Paint.Align.LEFT);
         }
-        if(index==3&&!owner.isInstalled(3)) {
-            p.setColor(0x18ffffff);c.drawRoundRect(box.right-82,box.top+17,box.right-17,box.top+43,13,13,p);
-            text(c,"待安装",box.right-49.5f,box.top+35,12,0xc2ffffff,regular,Paint.Align.CENTER);
+    }
+
+    /** Static card artwork and static focus sheen are separate small GPU layers. */
+    private final class AppCardNode extends ViewGroup {
+        private final int index;
+        private final View face,sheen;
+        private MusicBeatView beat;
+        AppCardNode(Context context,int index){
+            super(context);this.index=index;setClipChildren(false);setClipToPadding(false);
+            face=new View(context){@Override protected void onDraw(Canvas c){
+                RectF box=boxes[AppCardNode.this.index];c.save();c.scale(getWidth()/box.width(),getHeight()/box.height());c.translate(-box.left,-box.top);card(c,AppCardNode.this.index);c.restore();
+            }};
+            sheen=new View(context){
+                private final Paint highlight=new Paint(Paint.ANTI_ALIAS_FLAG);
+                @Override protected void onDraw(Canvas c){
+                    c.save();c.scale(getWidth()/370f,getHeight()/198f);
+                    highlight.setStyle(Paint.Style.FILL);highlight.setColor(Color.WHITE);
+                    highlight.setShader(new LinearGradient(0,0,370,198,new int[]{0x12ffffff,0x03ffffff},null,Shader.TileMode.CLAMP));
+                    c.drawRoundRect(1,1,369,197,30,30,highlight);
+                    highlight.setStyle(Paint.Style.STROKE);highlight.setStrokeWidth(1.4f);
+                    highlight.setShader(new LinearGradient(0,0,370,198,new int[]{0xb3ffffff,0x30ffffff,0x55ffffff},null,Shader.TileMode.CLAMP));
+                    c.drawRoundRect(1,1,369,197,30,30,highlight);highlight.setShader(null);c.restore();
+                }
+            };
+            face.setLayerType(View.LAYER_TYPE_HARDWARE,null);sheen.setLayerType(View.LAYER_TYPE_HARDWARE,null);
+            face.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);sheen.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            addView(face);addView(sheen);sheen.setAlpha(weights[index]);
+            if(index==1){beat=new MusicBeatView(owner);addView(beat);}
         }
-        c.restore();
+        void refreshFace(){face.invalidate();}
+        void setFocusWeight(float weight){
+            float zoom=(1+.045f*weight)*(isPressed()?.972f:1);
+            setScaleX(zoom);setScaleY(zoom);setTranslationY(-10*weight*scale);sheen.setAlpha(weight);
+        }
+        @Override protected void drawableStateChanged(){super.drawableStateChanged();if(sheen!=null)setFocusWeight(weights[index]);}
+        @Override protected void onMeasure(int width,int height){
+            int w=MeasureSpec.getSize(width),h=MeasureSpec.getSize(height);setMeasuredDimension(w,h);
+            face.measure(width,height);sheen.measure(width,height);
+            if(beat!=null)beat.measure(MeasureSpec.makeMeasureSpec(Math.round(w*28/370f),MeasureSpec.EXACTLY),MeasureSpec.makeMeasureSpec(Math.round(h*26/198f),MeasureSpec.EXACTLY));
+        }
+        @Override protected void onLayout(boolean changed,int l,int t,int r,int b){face.layout(0,0,r-l,b-t);sheen.layout(0,0,r-l,b-t);if(beat!=null){int x=Math.round((r-l)*326/370f),y=Math.round((b-t)*20/198f);beat.layout(x,y,x+beat.getMeasuredWidth(),y+beat.getMeasuredHeight());}}
     }
 
     private void appIcon(Canvas c,int index,float x,float y) {
         RectF badge=new RectF(x-49,y-49,x+49,y+49);
         p.setColor(index==2?0xff247ea8:0xff12141d);p.setShadowLayer(14,0,6,0x55000000);c.drawRoundRect(badge,25,25,p);p.clearShadowLayer();
-        if(index<2&&icons[index]!=null) {
+        if(icons[index]!=null) {
             c.save();Path clip=new Path();clip.addRoundRect(badge,25,25,Path.Direction.CW);c.clipPath(clip);
             icons[index].setBounds((int)badge.left,(int)badge.top,(int)badge.right,(int)badge.bottom);icons[index].draw(c);c.restore();
         } else if(index==2) {
@@ -263,10 +299,7 @@ final class GlassScene extends ViewGroup {
             Path screen=new Path();screen.moveTo(x-29,y+13);screen.lineTo(x-29,y-23);screen.quadTo(x-29,y-28,x-24,y-28);screen.lineTo(x+25,y-28);screen.quadTo(x+30,y-28,x+30,y-23);screen.lineTo(x+30,y+8);screen.quadTo(x+30,y+13,x+25,y+13);screen.lineTo(x+17,y+13);c.drawPath(screen,p);
             p.setStyle(Paint.Style.FILL);Path triangle=new Path();triangle.moveTo(x,y+3);triangle.lineTo(x-21,y+28);triangle.lineTo(x+21,y+28);triangle.close();c.drawPath(triangle,p);
         } else if(index==3) {
-            // Three ribbons retain the recognizable Netflix N, with a darker left face.
-            p.setColor(0xffb20710);c.drawRect(x-24,y-33,x-10,y+33,p);c.drawRect(x+11,y-33,x+25,y+33,p);
-            p.setShader(new LinearGradient(x-23,y-32,x+24,y+32,0xfff51d29,0xffdb0712,Shader.TileMode.CLAMP));
-            Path ribbon=new Path();ribbon.moveTo(x-24,y-33);ribbon.lineTo(x-8,y-33);ribbon.lineTo(x+25,y+33);ribbon.lineTo(x+9,y+33);ribbon.close();c.drawPath(ribbon,p);p.setShader(null);
+            p.setColor(Color.WHITE);Path play=new Path();play.moveTo(x-16,y-25);play.lineTo(x+25,y);play.lineTo(x-16,y+25);play.close();c.drawPath(play,p);
         } else text(c,index==0?"哔":"♪",x,y+16,53,Color.WHITE,medium,Paint.Align.CENTER);
         p.setShader(new LinearGradient(badge.left,badge.top,badge.right,badge.bottom,new int[]{0x32ffffff,0x00ffffff,0x00ffffff},null,Shader.TileMode.CLAMP));c.drawRoundRect(badge,25,25,p);p.setShader(null);
         p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1);p.setColor(0x26ffffff);c.drawRoundRect(badge,25,25,p);p.setStyle(Paint.Style.FILL);
@@ -289,16 +322,15 @@ final class GlassScene extends ViewGroup {
     }
 
     private void frosted(Canvas c,RectF r,float radius,float strength,int accent) {
-        c.save();Path clip=new Path();clip.addRoundRect(r,radius,radius,Path.Direction.CW);c.clipPath(clip);
-        p.setColor(Color.WHITE);p.setAlpha((int)(95+45*strength));c.drawBitmap(dynamic?videoBlur:stillBlur,null,full,p);p.setAlpha(255);
-        p.setColor(0x090b1730);c.drawRect(r,p);
+        // Clear glass: the live wallpaper itself supplies the colour, without readback.
+        p.setStyle(Paint.Style.FILL);p.setColor(Color.WHITE);
         p.setShader(new LinearGradient(r.left,r.top,r.right,r.bottom,
-                new int[]{withAlpha(Color.WHITE,(int)(14+17*strength)),withAlpha(Color.WHITE,(int)(5+6*strength)),0x081a2846},
-                new float[]{0,.45f,1},Shader.TileMode.CLAMP));c.drawRect(r,p);p.setShader(null);
-        if(accent!=0){p.setColor(accent);c.drawRect(r,p);}
-        c.restore();
+                new int[]{withAlpha(Color.WHITE,(int)(12+10*strength)),withAlpha(Color.WHITE,(int)(4+5*strength))},null,Shader.TileMode.CLAMP));
+        c.drawRoundRect(r,radius,radius,p);p.setShader(null);
+        if(accent!=0){p.setColor(accent);c.drawRoundRect(r,radius,radius,p);}
+        p.setColor(Color.WHITE);
         p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.1f);
-        p.setShader(new LinearGradient(r.left,r.top,r.left,r.bottom,new int[]{0x65ffffff,0x15ffffff,0x38ffffff},null,Shader.TileMode.CLAMP));
+        p.setShader(new LinearGradient(r.left,r.top,r.left,r.bottom,new int[]{0x32ffffff,0x0cffffff,0x1affffff},null,Shader.TileMode.CLAMP));
         c.drawRoundRect(r,radius,radius,p);p.setShader(null);p.setStyle(Paint.Style.FILL);
         p.setShader(new LinearGradient(r.left+radius,r.top,r.right-radius,r.top,new int[]{0x00ffffff,0x45ffffff,0x00ffffff},null,Shader.TileMode.CLAMP));
         c.drawRoundRect(r.left+radius,r.top+1,r.right-radius,r.top+2,1,1,p);p.setShader(null);
@@ -311,7 +343,7 @@ final class GlassScene extends ViewGroup {
     private static int withAlpha(int color,int alpha){return (color&0xffffff)|(Math.max(0,Math.min(255,alpha))<<24);}
 
     /** Three separable box passes approximate a Gaussian backdrop blur at 1/8 resolution. */
-    private void blur(Bitmap source,Bitmap output) {
+    static void blurFrame(Bitmap source,Bitmap output,int[] rgb,int[] scratch) {
         source.getPixels(rgb,0,240,0,0,240,135);
         for(int pass=0;pass<3;pass++) {
             boxPass(rgb,scratch,240,135,5,true);
