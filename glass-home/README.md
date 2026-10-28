@@ -76,7 +76,9 @@
 
 另外安装三款轮播素材时增加 `-WallpaperDirectory ./design`，该目录应包含 `san-francisco.mov`、`earth-aurora.mov`、`scotland.mov`。首帧封面已随 APK 打包。
 
-小米固件对第三方 HOME 有白名单。常规默认桌面设置在这台 HyperOS 2 / Android 14 上无效，所以使用系统绑定的无障碍服务实现 Home 路由。服务只监听窗口切换元数据；不读取页面内容、输入文字、账号或密码。Home 打开小米原桌面时，服务把玻璃桌面带回前台。主动点击顶部“小米原主页”时，允许浏览原桌面，并只在这段浏览期间过滤 Home 键；按 Home 返回玻璃桌面。不会停用小米原桌面或其他系统应用。
+小米固件对第三方 HOME 有白名单。常规默认桌面设置在这台 HyperOS 2 / Android 14 上无效，所以使用系统绑定的无障碍服务实现 Home 路由。启用路由后持续请求 Home 按键过滤，在第一次按下时直接打开 Glass，配对吞掉松开和长按重复事件，避免先显示小米主页。Glass 恢复前台后也保持过滤，防止松开事件漏给系统。其他按键照常传递，服务不读取页面内容、输入文字、账号或密码。原有窗口监听仅用于开机、唤醒或绕过按键过滤的系统调用兜底。
+
+顶部“小米原主页”入口通过系统全局 Home 动作主动进入原桌面，实体 Home 仍直接返回 Glass。原桌面受签名权限保护，不能由普通应用直接启动其 Activity。ADB 的 `input keyevent 3` 在此固件上绕过实体按键过滤，不能拿它验证硬件按键防闪屏；网页遥控器使用显式 Glass 启动命令。`dumpsys activity com.gathin.glasshome` 的 `GlassHomeRouting` 输出过滤状态、实体 Home 直接路由次数与窗口兜底次数，帮助区分两条路径。`tests/test-home-key-router.ps1` 验证按下/松开、长按、重复事件、停用及其他按键；`tests/test-music-visibility.ps1` 验证 Home 返回不打断音乐。Glass 内部面板按 Home 使用原有收起动画，其他应用返回使用短淡入淡出。不会停用小米原桌面或其他系统应用。
 
 恢复系统原主页：`./restore.ps1 -TvHost <电视IP>`。只移除本桌面的无障碍服务条目，保留其他条目。此脚本不卸载应用或删除电视数据。
 

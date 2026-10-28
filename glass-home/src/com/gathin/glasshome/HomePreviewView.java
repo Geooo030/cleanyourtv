@@ -30,12 +30,12 @@ final class HomePreviewView extends FrameLayout implements MusicController.Liste
     private final PathInterpolator easing=new PathInterpolator(.16f,1f,.3f,1f);
     private int selected=-1,displayed=-1;
     private long artworkId=-1;
-    private boolean homeVisible,closed;
+    private boolean homeVisible,closed,musicPinned;
     private final Runnable reveal=()->reveal();
     private final Runnable tick=new Runnable(){public void run(){if(closed||!homeVisible||displayed!=1||getVisibility()!=VISIBLE)return;progress.invalidate();postDelayed(this,400);}};
 
     HomePreviewView(GlassHomeActivity owner,float unit,int screenW,int screenH){
-        super(owner);this.owner=owner;this.unit=unit;setVisibility(GONE);setFocusable(false);setClickable(false);setClipChildren(true);
+        super(owner);this.owner=owner;this.unit=unit;setVisibility(GONE);setFocusable(false);setClickable(false);setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);setClipChildren(true);
         setBackground(new GlassPanelDrawable(unit,screenW,screenH,owner.scene).preview().at(px(X),px(Y)));
         heading=text(25,Color.WHITE,600);addView(heading,box(26,15,440,40));
         source=text(14,0x99ffffff,400);source.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);addView(source,box(470,16,352,38));
@@ -45,7 +45,7 @@ final class HomePreviewView extends FrameLayout implements MusicController.Liste
         musicCover=image(musicPage,26,82,240,240);
         musicTitle=text(29,Color.WHITE,600);musicTitle.setMaxLines(2);musicPage.addView(musicTitle,box(294,77,524,74));
         musicArtist=text(20,0xbfffffff,400);musicArtist.setSingleLine();musicPage.addView(musicArtist,box(296,153,520,36));
-        lyrics=new MusicLyricsView(owner,unit*.65f);musicPage.addView(lyrics,box(290,197,530,100));
+        lyrics=new MusicLyricsView(owner,unit*.65f);lyrics.setFocusable(false);lyrics.setClickable(false);musicPage.addView(lyrics,box(290,197,530,100));
         album=text(21,0x99ffffff,400);album.setMaxLines(2);musicPage.addView(album,box(296,207,514,82));
         progress=new Progress();musicPage.addView(progress,box(296,315,510,55));
         for(String provider:new String[]{"bilibili","aurora"})try{JSONObject value=new JSONObject(owner.getSharedPreferences("home_preview",0).getString(provider,""));if(value.optJSONArray("items")!=null)feeds.put(provider,value);}catch(Exception ignored){}
@@ -56,15 +56,16 @@ final class HomePreviewView extends FrameLayout implements MusicController.Liste
     private TextView text(float size,int color,int weight){TextView v=new TextView(owner);v.setTypeface(GlassFonts.create(owner,weight));v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(size));v.setTextColor(color);v.setIncludeFontPadding(false);v.setGravity(Gravity.CENTER_VERTICAL);v.setEllipsize(TextUtils.TruncateAt.END);v.setFocusable(false);return v;}
     private GradientDrawable placeholder(){GradientDrawable d=new GradientDrawable();d.setColor(0x16ffffff);d.setCornerRadius(px(22));d.setStroke(Math.max(1,px(1)),0x22ffffff);return d;}
     private ImageView image(FrameLayout page,float x,float y,float w,float h){ImageView view=new ImageView(owner);view.setScaleType(ImageView.ScaleType.CENTER_CROP);view.setBackground(placeholder());view.setClipToOutline(true);view.setFocusable(false);page.addView(view,box(x,y,w,h));return view;}
-    private boolean eligible(){return selected==0||selected==1||selected==3;}
-    void focus(int index){selected=index;removeCallbacks(reveal);if(!eligible()){hide(true);return;}if(homeVisible)postDelayed(reveal,150);}
+    private int previewIndex(){musicPinned=owner.music.playing||musicPinned&&owner.music.busy();return musicPinned?1:selected;}
+    private boolean eligible(){int index=previewIndex();return index==0||index==1||index==3;}
+    void focus(int index){selected=index;removeCallbacks(reveal);if(!eligible()){hide(true);return;}if(homeVisible&&(displayed!=previewIndex()||getVisibility()!=VISIBLE))postDelayed(reveal,150);}
     void setHomeVisible(boolean value){if(closed)return;homeVisible=value;removeCallbacks(reveal);if(value&&eligible())postDelayed(reveal,150);else hide(false);}
     private void hide(boolean animate){removeCallbacks(tick);stopCarousel();lyrics.stop();animate().cancel();if(!animate){setVisibility(GONE);setAlpha(0);return;}animate().alpha(0).translationY(px(10)).setDuration(170).setInterpolator(easing).withEndAction(()->{if(!eligible()||!homeVisible)setVisibility(GONE);}).start();}
     private void reveal(){
         if(closed||!homeVisible||!eligible())return;
-        boolean opening=getVisibility()!=VISIBLE;boolean switched=displayed!=selected;
+        int target=previewIndex();boolean opening=getVisibility()!=VISIBLE;boolean switched=displayed!=target;
         if(switched){stopCarousel();feedOffset=0;}
-        displayed=selected;animate().cancel();setVisibility(VISIBLE);
+        displayed=target;animate().cancel();setVisibility(VISIBLE);
         if(opening){setAlpha(0);setScaleX(.975f);setScaleY(.975f);setTranslationY(px(14));owner.requestHomePreviewBackdrop();}
         if(displayed==1){stopCarousel();videoPage.setVisibility(GONE);musicPage.setVisibility(VISIBLE);renderMusic();}
         else{lyrics.stop();removeCallbacks(tick);musicPage.setVisibility(GONE);videoPage.setVisibility(VISIBLE);String provider=displayed==0?"bilibili":"aurora";renderFeed(provider);loadFeed(provider);}
@@ -107,9 +108,14 @@ final class HomePreviewView extends FrameLayout implements MusicController.Liste
         else if(artworkId!=track.id){artworkId=track.id;musicCover.setImageDrawable(null);long id=track.id;music.previewCover(track,bitmap->{if(!closed&&artworkId==id&&bitmap!=null)musicCover.setImageBitmap(bitmap);});}
         removeCallbacks(tick);if(homeVisible&&getVisibility()==VISIBLE&&displayed==1){progress.invalidate();postDelayed(tick,400);lyrics.update();if(music.playing)lyrics.start();else lyrics.stop();}
     }
-    @Override public void changed(){if(!closed&&displayed==1)renderMusic();}
+    @Override public void changed(){
+        if(closed)return;int target=previewIndex();
+        if(!homeVisible)return;
+        if(displayed!=target||getVisibility()!=VISIBLE){removeCallbacks(reveal);if(eligible())reveal();else hide(true);}
+        else if(displayed==1)renderMusic();
+    }
     void updateBackdrop(){if(!closed)getBackground().invalidateSelf();}
-    String snapshot(){JSONObject feed=feeds.get(displayed==0?"bilibili":"aurora");return "selected="+selected+" displayed="+displayed+" visible="+(homeVisible&&getVisibility()==VISIBLE)+" items="+(feed==null||feed.optJSONArray("items")==null?0:feed.optJSONArray("items").length())+" offset="+feedOffset+" sliding="+sliding+" artwork="+artworkId;}
+    String snapshot(){JSONObject feed=feeds.get(displayed==0?"bilibili":"aurora");return "selected="+selected+" displayed="+displayed+" musicPinned="+musicPinned+" visible="+(homeVisible&&getVisibility()==VISIBLE)+" items="+(feed==null||feed.optJSONArray("items")==null?0:feed.optJSONArray("items").length())+" offset="+feedOffset+" sliding="+sliding+" artwork="+artworkId;}
     void close(){closed=true;stopCarousel();removeCallbacks(reveal);removeCallbacks(tick);animate().cancel();videoPage.animate().cancel();musicPage.animate().cancel();lyrics.stop();owner.music.remove(this);}
     private final class Progress extends View {
         private final Paint paint=new Paint(3);Progress(){super(owner);setFocusable(false);paint.setTypeface(GlassFonts.create(owner,400));}

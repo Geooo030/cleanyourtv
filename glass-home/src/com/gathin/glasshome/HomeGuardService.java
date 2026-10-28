@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.app.ActivityOptions;
 import android.util.Log;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,10 +19,12 @@ public final class HomeGuardService extends AccessibilityService {
     private String lastPackage;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private static final String STOCK="com.mitv.tvhome";
+    private final HomeKeyRouter keys=new HomeKeyRouter();
+    private int directReturns,fallbackReturns;
 
     @Override protected void onServiceConnected() {
         current=this;
-        filterHome(false);
+        filterHome(HomeRouting.enabled(this));
         Log.i("GlassHomeGuard","Home routing ready");
         if(HomeRouting.preferences(this).getBoolean("wake_pending",false))scheduleWake();
     }
@@ -30,8 +33,9 @@ public final class HomeGuardService extends AccessibilityService {
     static boolean sleepScreen(){return current!=null&&android.os.Build.VERSION.SDK_INT>=28&&current.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);}
     static boolean showPowerMenu(){return current!=null&&current.performGlobalAction(GLOBAL_ACTION_POWER_DIALOG);}
     static void glassVisible(){
-        if(current!=null){current.visitingStock=false;current.filterHome(false);}
+        if(current!=null){current.visitingStock=false;current.filterHome(HomeRouting.enabled(current));}
     }
+    static String snapshot(){if(current==null)return "connected=false";AccessibilityServiceInfo info=current.getServiceInfo();return "connected=true filter="+(info!=null&&(info.flags&AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS)!=0)+" visitingStock="+current.visitingStock+" direct="+current.directReturns+" fallback="+current.fallbackReturns;}
     private void scheduleWake(){
         visitingStock=false;
         handler.removeCallbacksAndMessages(null);
@@ -47,31 +51,37 @@ public final class HomeGuardService extends AccessibilityService {
         if(current==null)return false;
         current.visitingStock=true;
         current.filterHome(true);
-        return current.performGlobalAction(GLOBAL_ACTION_HOME);
+        // System-injected Home bypasses key filtering and has the stock launcher's
+        // signature permission. This action is used only for the explicit top-bar entry.
+        boolean opened=current.performGlobalAction(GLOBAL_ACTION_HOME);
+        if(!opened)current.visitingStock=false;return opened;
     }
 
     private void filterHome(boolean enabled) {
         AccessibilityServiceInfo info=getServiceInfo();
         if(info==null)return;
         int flag=AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
-        info.flags=enabled?(info.flags|flag):(info.flags&~flag);
+        int flags=enabled?(info.flags|flag):(info.flags&~flag);if(info.flags==flags)return;
+        info.flags=flags;
         setServiceInfo(info);
     }
 
     private void returnHome() {
         visitingStock=false;
-        filterHome(false);
+        filterHome(HomeRouting.enabled(this));
         try {
+            ActivityOptions options=ActivityOptions.makeCustomAnimation(this,R.anim.home_return_enter,R.anim.home_return_exit);
+            options.setLaunchDisplayId(android.view.Display.DEFAULT_DISPLAY);
             startActivity(new Intent(this,GlassHomeActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP),options.toBundle());
             Log.i("GlassHomeGuard","Returned to Glass Home");
         } catch(RuntimeException ex){ Log.e("GlassHomeGuard","Cannot start home",ex); }
     }
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
-        if(!visitingStock || (event.getKeyCode()!=KeyEvent.KEYCODE_HOME && event.getKeyCode()!=KeyEvent.KEYCODE_ALL_APPS))return false;
-        if(event.getAction()==KeyEvent.ACTION_UP && !event.isCanceled())returnHome();
-        return true;
+        int decision=keys.key(event.getKeyCode(),event.getAction(),event.getRepeatCount(),event.getDownTime(),event.isCanceled(),HomeRouting.enabled(this));
+        if(decision==HomeKeyRouter.RETURN_HOME){directReturns++;Log.i("GlassHomeGuard","Home key intercepted before launcher");returnHome();}
+        return decision!=HomeKeyRouter.PASS;
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -79,7 +89,7 @@ public final class HomeGuardService extends AccessibilityService {
         String pkg=event.getPackageName().toString(),cls=event.getClassName().toString();
         try{getPackageManager().getActivityInfo(new ComponentName(pkg,cls),0);lastPackage=pkg;}catch(Exception ignored){}
         if(STOCK.equals(pkg)) {
-            if(!visitingStock && (cls.equals("com.mitv.tvhome.MainActivityUserMode") || cls.equals("com.mitv.tvhome.MainActivity")))returnHome();
+            if(HomeRouting.enabled(this)&&!visitingStock && (cls.equals("com.mitv.tvhome.MainActivityUserMode") || cls.equals("com.mitv.tvhome.MainActivity"))){fallbackReturns++;returnHome();}
             return;
         }
         if(visitingStock && !pkg.equals(getPackageName()) && !pkg.equals("android")) {
@@ -87,7 +97,7 @@ public final class HomeGuardService extends AccessibilityService {
             try {
                 getPackageManager().getActivityInfo(new ComponentName(pkg,cls),0);
                 visitingStock=false;
-                filterHome(false);
+                filterHome(HomeRouting.enabled(this));
             }catch(Exception ignored) { }
         }
     }

@@ -56,6 +56,7 @@ final class AppsOverlay extends Dialog {
     private float expansion;
     private android.animation.ValueAnimator motion;
     private Runnable pendingLaunch;
+    private Runnable homeReturn;
 
     static final class Entry {
         final ResolveInfo info; final String label; final Drawable icon;
@@ -70,7 +71,7 @@ final class AppsOverlay extends Dialog {
             if(motion!=null){motion.removeAllListeners();motion.cancel();}
             owner.setAppsExpansion(0);owner.setAppsMotion(false);
             owner.appsOverlayClosed(this);
-            Runnable action=pendingLaunch;pendingLaunch=null;if(action!=null)action.run();
+            Runnable action=homeReturn!=null?homeReturn:pendingLaunch;homeReturn=null;pendingLaunch=null;if(action!=null)action.run();
         });
     }
 
@@ -249,7 +250,8 @@ final class AppsOverlay extends Dialog {
         motion.addListener(new android.animation.AnimatorListenerAdapter(){@Override public void onAnimationEnd(android.animation.Animator animation){panel.setLayerType(View.LAYER_TYPE_NONE,null);owner.setAppsMotion(false);if(!opening)AppsOverlay.super.dismiss();}});
         motion.start();
     }
-    void dismissImmediately(){if(disposed)return;closing=true;pendingLaunch=null;if(motion!=null){motion.removeAllListeners();motion.cancel();}super.dismiss();}
+    void dismissToHome(){pendingLaunch=null;homeReturn=()->owner.scene.focusApp(0);dismiss();}
+    void dismissImmediately(){if(disposed)return;closing=true;pendingLaunch=null;homeReturn=null;if(motion!=null){motion.removeAllListeners();motion.cancel();}super.dismiss();}
     void updateBackdrop(android.graphics.Bitmap frame){if(!disposed&&panel!=null)panel.getBackground().invalidateSelf();}
     private int px(float value){return Math.round(value*unit);}
     private Drawable closeBackground(boolean focused){android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable();d.setColor(focused?0xffe6edf0:0x0effffff);d.setCornerRadius(px(26));d.setStroke(Math.max(1,px(1)),0x25ffffff);return d;}

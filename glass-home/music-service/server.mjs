@@ -11,6 +11,7 @@ import { authorized, cdnUrl, pageOffset } from './security.mjs';
 import { MusicLibrary } from './library.mjs';
 import { rhythm } from './rhythm.mjs';
 import { HomePreviews } from './home-previews.mjs';
+import { FavoriteActions } from './favorites.mjs';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const runtime = path.join(dir, '.runtime');
@@ -32,10 +33,14 @@ const apiRoot = path.dirname(require.resolve('@neteasecloudmusicapienhanced/api'
 const { cookieToJson } = require(path.join(apiRoot, 'util/index.js'));
 const request = require(path.join(apiRoot, 'util/request.js'));
 let cookie = '', key = '', generation = 0, polling = false, ids = [], uid = 0;
-let likesUpdatedAt=0,likesPending;
+let likesUpdatedAt=0,likesPending,likesRevision=0;
 const tracks = new Map(), media = new Map(), pages = new Map();
 const state = { phase: 'idle', message: '登录网易云音乐', nickname: '', count: 0, qrImage: null };
 const library = new MusicLibrary(api,tracks,()=>uid);
+const favorites=new FavoriteActions(api,()=>generation,(id,liked)=>{
+  likesRevision++;ids=ids.filter(value=>value!==id);if(liked)ids.unshift(id);
+  pages.clear();library.details.clear();likesUpdatedAt=Date.now();state.count=ids.length;
+});
 const homePreviews=new HomePreviews({directory:runtime});
 const rhythms=new Map();let analysis=Promise.resolve();
 const setState = (phase, message) => Object.assign(state, { phase, message });
@@ -65,8 +70,8 @@ async function loadLibrary() {
 async function refreshLikes(force=false){
   if(!force&&Date.now()-likesUpdatedAt<60000)return;
   if(likesPending?.generation===generation)return likesPending.promise;
-  const job={generation,promise:null};likesPending=job;
-  job.promise=(async()=>{const result=await api('likelist',{uid});if(!Array.isArray(result.ids))throw Error('LIBRARY_UNAVAILABLE');const ordered=await library.likedOrder(result.ids);if(job.generation!==generation)return;ids=ordered;pages.clear();likesUpdatedAt=Date.now();state.count=ids.length;})().finally(()=>{if(likesPending===job)likesPending=null;});
+  const job={generation,revision:likesRevision,promise:null};likesPending=job;
+  job.promise=(async()=>{const result=await api('likelist',{uid});if(!Array.isArray(result.ids))throw Error('LIBRARY_UNAVAILABLE');const ordered=await library.likedOrder(result.ids);if(job.generation!==generation||job.revision!==likesRevision)return;ids=ordered;pages.clear();likesUpdatedAt=Date.now();state.count=ids.length;})().finally(()=>{if(likesPending===job)likesPending=null;});
   return job.promise;
 }
 async function startQr() {
@@ -159,6 +164,21 @@ const server = http.createServer(async (req,res) => {
     if (req.method==='POST' && url.pathname==='/api/logout') {
       ++generation; key=''; cookie=''; ids=[]; likesUpdatedAt=0; tracks.clear(); pages.clear(); media.clear();library.clear();rhythms.clear();
       Object.assign(state,{nickname:'',count:0,qrImage:null}); fs.rmSync(path.join(runtime,'session.dpapi'),{force:true}); setState('idle','登录网易云音乐'); return json(res,state);
+    }
+    if(req.method==='GET'&&url.pathname==='/api/queue'){
+      if(state.phase!=='ready'||!cookie)throw Error('LOGIN_REQUIRED');
+      const source=url.searchParams.get('source');let queueIds;
+      if(source==='/api/likes'){await refreshLikes();queueIds=ids;}
+      else{const match=/^\/api\/playlist\/(\d+)$/.exec(source||'');if(!match)throw Error('INVALID_QUEUE');queueIds=(await library.detail(Number(match[1]))).ids;}
+      return json(res,{tracks:queueIds.map(id=>tracks.get(id)||{id})});
+    }
+    const favorite=url.pathname.match(/^\/api\/favorite\/(\d+)$/);
+    if(favorite&&['GET','POST'].includes(req.method)){
+      if(state.phase!=='ready'||!cookie)throw Error('LOGIN_REQUIRED');
+      const id=Number(favorite[1]);if(!Number.isSafeInteger(id)||id<=0)throw Error('INVALID_FAVORITE');
+      if(req.method==='GET'){await refreshLikes();return json(res,{id,liked:ids.includes(id)});}
+      const value=url.searchParams.get('liked');if(!['true','false'].includes(value))throw Error('INVALID_FAVORITE');
+      return json(res,await favorites.set(id,value==='true'));
     }
     if (req.method==='GET' && url.pathname==='/api/likes') return json(res,await libraryPage(pageOffset(url.searchParams.get('offset'))));
     if(req.method==='GET'&&url.pathname==='/api/collections')return json(res,await library.collections(pageOffset(url.searchParams.get('offset')),url.searchParams.get('kind')||'all'));

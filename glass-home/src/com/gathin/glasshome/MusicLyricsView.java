@@ -4,6 +4,8 @@ import android.animation.ValueAnimator;
 import android.graphics.*;
 import android.text.*;
 import android.view.View;
+import android.view.KeyEvent;
+import android.os.SystemClock;
 import android.view.animation.PathInterpolator;
 import org.json.*;
 import java.util.ArrayList;
@@ -20,9 +22,13 @@ final class MusicLyricsView extends View {
     private float[] emphasis=new float[0];
     private ValueAnimator movement;
     private boolean running;
+    private int browsing=-1;
+    private long browseUntil;
+    private final PathInterpolator glide=new PathInterpolator(.2f,.75f,.15f,1);
     private final float density;
     private static class Line {int start,end;String text;JSONArray words;StaticLayout layout;float top,height;}
-    MusicLyricsView(GlassHomeActivity owner,float unit){super(owner);music=owner.music;density=unit;paint.setTypeface(GlassFonts.create(owner,600));setFocusable(false);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
+    MusicLyricsView(GlassHomeActivity owner,float unit){super(owner);music=owner.music;density=unit;paint.setTypeface(GlassFonts.create(owner,600));setFocusable(true);setClickable(true);setContentDescription("歌词");setOnClickListener(v->seekSelected());}
+    String snapshot(){return "active:"+active+",browse:"+browsing+",scroll:"+Math.round(scroll);}
     void start(){running=true;invalidate();}
     void stop(){running=false;if(movement!=null)movement.cancel();}
     void update(){if(source!=music.lyricLines){source=music.lyricLines;rebuild();}invalidate();}
@@ -35,15 +41,33 @@ final class MusicLyricsView extends View {
             line.layout=StaticLayout.Builder.obtain(line.text,0,line.text.length(),paint,Math.max(1,(int)((layoutWidth-24*density)/1.085f))).setIncludePad(false).setLineSpacing(5*density,1).build();
             line.top=top;line.height=line.layout.getHeight();top+=line.height+32*density;lines.add(line);
         }
-        active=-2;scroll=0;emphasis=new float[lines.size()];
+        active=-2;browsing=-1;browseUntil=0;scroll=0;emphasis=new float[lines.size()];
     }
+    private void animateTo(float target,boolean jump){
+        if(movement!=null)movement.cancel();
+        if(jump||!ValueAnimator.areAnimatorsEnabled()){scroll=target;for(int i=0;i<emphasis.length;i++)emphasis[i]=i==active?1:0;invalidate();return;}
+        final float fromScroll=scroll;final float[] from=emphasis.clone();
+        movement=ValueAnimator.ofFloat(0,1);movement.setDuration(560);movement.setInterpolator(glide);
+        movement.addUpdateListener(a->{float t=(float)a.getAnimatedValue();scroll=fromScroll+(target-fromScroll)*t;for(int i=0;i<emphasis.length;i++)emphasis[i]=from[i]+((i==active?1:0)-from[i])*t;invalidate();});movement.start();
+    }
+    private float target(int row){return row<0||row>=lines.size()?0:lines.get(row).top;}
     private void track(int position){
         int selected=-1;for(int i=0;i<lines.size();i++){if(lines.get(i).start<=position)selected=i;else break;}
-        if(selected==active)return;boolean jump=active==-2||Math.abs(selected-active)>2;active=selected;
-        if(movement!=null)movement.cancel();float target=selected<0?0:lines.get(selected).top;
-        if(jump){scroll=target;for(int i=0;i<emphasis.length;i++)emphasis[i]=i==active?1:0;return;}
-        final float fromScroll=scroll,toScroll=target;final float[] from=emphasis.clone();
-        movement=ValueAnimator.ofFloat(0,1);movement.setDuration(640);movement.setInterpolator(new PathInterpolator(.2f,.75f,.15f,1));movement.addUpdateListener(a->{float t=(float)a.getAnimatedValue();scroll=fromScroll+(toScroll-fromScroll)*t;for(int i=0;i<emphasis.length;i++)emphasis[i]=from[i]+((i==active?1:0)-from[i])*t;invalidate();});movement.start();
+        boolean returning=browsing>=0&&SystemClock.uptimeMillis()>=browseUntil;
+        if(returning)browsing=-1;
+        if(selected==active&&!returning)return;
+        boolean jump=active==-2||browsing<0&&!returning&&Math.abs(selected-active)>2;active=selected;
+        animateTo(target(browsing>=0?browsing:active),jump);
+    }
+    private void seekSelected(){if(browsing>=0&&browsing<lines.size()){music.seek(lines.get(browsing).start-music.position());browsing=-1;browseUntil=0;active=-2;invalidate();}}
+    @Override public boolean onKeyDown(int key,KeyEvent event){
+        if(key==KeyEvent.KEYCODE_DPAD_UP||key==KeyEvent.KEYCODE_DPAD_DOWN){
+            if(lines.isEmpty())return super.onKeyDown(key,event);
+            int row=browsing>=0?browsing:Math.max(0,active),next=Math.max(0,Math.min(lines.size()-1,row+(key==KeyEvent.KEYCODE_DPAD_DOWN?1:-1)));
+            if(next==row&&key==KeyEvent.KEYCODE_DPAD_UP)return super.onKeyDown(key,event);
+            browsing=next;browseUntil=SystemClock.uptimeMillis()+5000;animateTo(target(next),false);return true;
+        }
+        return super.onKeyDown(key,event);
     }
     @Override protected void onDraw(Canvas canvas){
         if(source!=music.lyricLines){source=music.lyricLines;rebuild();}
@@ -58,6 +82,7 @@ final class MusicLyricsView extends View {
                 float weight=emphasis[i],zoom=1+.085f*weight;
                 int alpha=Math.round((115+31*weight)*Math.max(.18f,1-distance*(1-weight)));
                 canvas.save();canvas.translate(8*density,y);canvas.scale(zoom,zoom,0,line.height*.5f);paint.setColor(Color.WHITE);paint.setAlpha(alpha);line.layout.draw(canvas);
+                if(isFocused()&&i==browsing&&i!=active){paint.setAlpha(210);line.layout.draw(canvas);}
                 if(i==active){
                     paint.setAlpha(255);
                     if(line.words!=null&&line.words.length()>0){
@@ -75,6 +100,6 @@ final class MusicLyricsView extends View {
                 canvas.restore();
             }
         }
-        if(running&&isShown()&&(music.playing||movement!=null&&movement.isRunning()))postInvalidateOnAnimation();
+        if(running&&isShown()&&(music.playing||browsing>=0||movement!=null&&movement.isRunning()))postInvalidateOnAnimation();
     }
 }

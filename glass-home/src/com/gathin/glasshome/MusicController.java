@@ -27,7 +27,7 @@ final class MusicController {
     interface Result { void loaded(JSONObject data,String error); }
     static final class Track {
         final long id; final String name,artist,album; final int duration;
-        Track(JSONObject o){id=o.optLong("id");name=o.optString("name");artist=o.optString("artist");album=o.optString("album");duration=o.optInt("duration");}
+        Track(JSONObject o){id=o.optLong("id");name=o.optString("name","正在载入…");artist=o.optString("artist");album=o.optString("album");duration=o.optInt("duration");}
         JSONObject json(){JSONObject value=new JSONObject();try{value.put("id",id).put("name",name).put("artist",artist).put("album",album).put("duration",duration);}catch(JSONException ignored){}return value;}
     }
     final ArrayList<Track> tracks=new ArrayList<>();
@@ -59,6 +59,13 @@ final class MusicController {
     private boolean disposed,statusBusy,pageBusy,preparing,foreground=true,resumeOnGain;
     private volatile int generation;
     private int nextOffset,queueRevision;
+    private final PlaybackOrder order=new PlaybackOrder(new Random());
+    private final HashSet<Long> likedIds=new HashSet<>(),knownFavorites=new HashSet<>(),favoriteRequests=new HashSet<>();
+    private boolean favoriteBusy,advancePending;
+    private int accountEpoch;
+    int favoriteRevision;
+    String favoriteMessage="";
+    static final String[] MODE_NAMES={"顺序播放","列表循环","单曲循环","随机播放"};
     private String queueRoute="/api/likes";
     JSONArray lyricLines=new JSONArray();boolean wordTimed;
     String lyricMessage="选择一首音乐";
@@ -94,7 +101,7 @@ final class MusicController {
         },main);
         readConfig();
         try{lastPlayed=new Track(new JSONObject(owner.getSharedPreferences("music",0).getString("last_track","")));}catch(Exception ignored){}
-        android.content.SharedPreferences saved=owner.getSharedPreferences("music",0);bookmark=new PlaybackBookmark(saved.getLong("last_position_track",0),saved.getInt("last_position",0));
+        android.content.SharedPreferences saved=owner.getSharedPreferences("music",0);order.mode(saved.getInt("play_mode",PlaybackOrder.LOOP));bookmark=new PlaybackBookmark(saved.getLong("last_position_track",0),saved.getInt("last_position",0));
     }
     private void readConfig(){android.content.SharedPreferences p=owner.getSharedPreferences("music",0);base=p.getString("base","");token=p.getString("token","");String scope=base+"|"+token;if(!scope.equals(artworkScope)){synchronized(artworkGuard){artworkEpoch++;artworkScope=scope;}images.evictAll();artworkTimes.clear();artworkRetry.clear();pendingImages.clear();}}
     void observe(Listener l){if(!listeners.contains(l))listeners.add(l);l.changed();}
@@ -139,7 +146,7 @@ final class MusicController {
         network.execute(()->{try{request("/api/login",true);main.post(()->{statusBusy=false;refresh();});}catch(Exception e){main.post(()->{statusBusy=false;phase="error";message=friendly(e);emit();});}});
     }
     void logout(){
-        invalidateArtwork();pause(true);bookmark.clear();restoring=false;pendingStartPosition=0;
+        accountEpoch++;knownFavorites.clear();likedIds.clear();favoriteRequests.clear();favoriteBusy=false;favoriteRevision++;order.reset();advancePending=false;invalidateArtwork();pause(true);bookmark.clear();restoring=false;pendingStartPosition=0;
         lastPlayed=null;owner.getSharedPreferences("music",0).edit().remove("last_track").remove("last_cover_id").remove("last_position_track").remove("last_position").apply();synchronized(lastCoverLock){new File(owner.getFilesDir(),"last-music-cover.jpg").delete();}
         pause(true);++generation;++queueRevision;pageBusy=false;preparing=false;releasePlayer();rhythm=new float[0];lyricLines=new JSONArray();network.execute(()->{try{request("/api/logout",true);main.post(()->{tracks.clear();images.evictAll();nextOffset=0;index=-1;hasMore=false;qr="";qrBitmap=null;phase="idle";refresh();});}catch(Exception e){main.post(()->{playMessage=friendly(e);emit();});}});
     }
@@ -149,11 +156,11 @@ final class MusicController {
         final int version=queueRevision;final String route=queueRoute;
         network.execute(()->{try{JSONObject page=request(route+(route.contains("?")?"&":"?")+"offset="+offset,false);JSONArray list=page.getJSONArray("tracks");ArrayList<Track> batch=new ArrayList<>();for(int i=0;i<list.length();i++)batch.add(new Track(list.getJSONObject(i)));
             main.post(()->{if(disposed||version!=queueRevision)return;pageBusy=false;tracks.addAll(batch);nextOffset=page.optInt("next",offset);hasMore=page.optBoolean("hasMore");emit();Runnable r=afterPage;afterPage=null;if(r!=null)r.run();});
-        }catch(Exception e){main.post(()->{if(disposed||version!=queueRevision)return;pageBusy=false;afterPage=null;playMessage=friendly(e);emit();});}});
+        }catch(Exception e){main.post(()->{if(disposed||version!=queueRevision)return;pageBusy=false;afterPage=null;advancePending=false;playMessage=friendly(e);emit();});}});
     }
     Track current(){return index>=0&&index<tracks.size()?tracks.get(index):null;}
     Track previewTrack(){return current()!=null?current():lastPlayed;}
-    boolean restoreLast(){if(current()!=null)return true;if(lastPlayed==null||lastPlayed.id<=0)return false;tracks.clear();tracks.add(lastPlayed);index=0;hasMore=false;nextOffset=0;restoring=true;pendingStartPosition=bookmark.forTrack(lastPlayed.id,lastPlayed.duration);sampledAt=0;playMessage="";emit();return true;}
+    boolean restoreLast(){if(current()!=null)return true;if(lastPlayed==null||lastPlayed.id<=0)return false;tracks.clear();tracks.add(lastPlayed);order.reset();index=0;refreshFavorite(lastPlayed.id);hasMore=false;nextOffset=0;restoring=true;pendingStartPosition=bookmark.forTrack(lastPlayed.id,lastPlayed.duration);sampledAt=0;playMessage="";emit();return true;}
     private void saveCheckpoint(){Track track=current();if(track==null||lastPlayed==null||track.id!=lastPlayed.id||preparing||player==null)return;bookmark.record(track.id,position(),duration());owner.getSharedPreferences("music",0).edit().putLong("last_position_track",bookmark.trackId).putInt("last_position",bookmark.position).apply();}
     int savedPosition(){return lastPlayed==null?0:bookmark.forTrack(lastPlayed.id,lastPlayed.duration);}
 
@@ -165,7 +172,7 @@ final class MusicController {
         cover(track.id,bitmap->{if(bitmap==null||disposed)return;artworkNetwork.execute(()->{synchronized(lastCoverLock){if(lastPlayed==null||lastPlayed.id!=track.id)return;File temp=new File(owner.getFilesDir(),"last-music-cover.tmp");try(FileOutputStream out=new FileOutputStream(temp)){if(!bitmap.compress(Bitmap.CompressFormat.JPEG,88,out))return;}catch(Exception ignored){return;}if(temp.renameTo(new File(owner.getFilesDir(),"last-music-cover.jpg")))owner.getSharedPreferences("music",0).edit().putLong("last_cover_id",track.id).apply();}});});
     }
     void fetch(String route,Result result){readConfig();network.execute(()->{try{JSONObject data=request(route,false);main.post(()->{if(!disposed)result.loaded(data,null);});}catch(Exception e){main.post(()->{if(!disposed)result.loaded(null,friendly(e));});}});}
-    void queue(ArrayList<Track> source,int selected,String route,int next,boolean more){saveCheckpoint();restoring=false;pendingStartPosition=0;queueRevision++;pageBusy=false;tracks.clear();tracks.addAll(source);queueRoute=route;nextOffset=next;hasMore=more;afterPage=null;play(selected);}
+    void queue(ArrayList<Track> source,int selected,String route,int next,boolean more){saveCheckpoint();restoring=false;pendingStartPosition=0;queueRevision++;advancePending=false;order.reset();pageBusy=false;tracks.clear();tracks.addAll(source);queueRoute=route;nextOffset=next;hasMore=more;afterPage=null;play(selected);}
     int playhead(){long now=android.os.SystemClock.uptimeMillis();if(now-sampledAt>180||!playing){sampledPosition=position();sampledAt=now;}return sampledPosition+(playing?(int)(now-sampledAt):0);}
     float level(int band){if(!playing||rhythm.length==0)return 0;float at=Math.max(0,(playhead()-band*37)/(float)rhythmStep);int i=Math.min(rhythm.length-1,(int)at),j=Math.min(rhythm.length-1,i+1);return rhythm[i]+(rhythm[j]-rhythm[i])*(at-(int)at);}
     int rhythmSamples(){return rhythm.length;}
@@ -174,12 +181,13 @@ final class MusicController {
     int duration(){try{return player!=null&&!preparing?player.getDuration():current()==null?0:current().duration;}catch(IllegalStateException e){return 0;}}
     void play(int selected){
         if(disposed||selected<0||selected>=tracks.size())return;
-        saveCheckpoint();main.removeCallbacks(checkpoint);int start=restoring&&index==selected?pendingStartPosition:0;restoring=start>0;pendingStartPosition=start;
+        advancePending=false;saveCheckpoint();main.removeCallbacks(checkpoint);int start=restoring&&index==selected?pendingStartPosition:0;restoring=start>0;pendingStartPosition=start;
         final int currentGeneration=++generation;index=selected;preparing=true;playing=false;playMessage="正在载入…";releasePlayer();sampledAt=0;rhythm=new float[0];lyricLines=new JSONArray();lyricMessage="正在载入歌词…";emit();
-        final long id=tracks.get(selected).id;
+        final long id=tracks.get(selected).id;refreshFavorite(id);
         fetch("/api/lyrics/"+id,(data,error)->{if(currentGeneration!=generation)return;lyricLines=data==null?new JSONArray():data.optJSONArray("lines");if(lyricLines==null)lyricLines=new JSONArray();wordTimed=data!=null&&data.optBoolean("wordTimed");lyricMessage=error!=null?"歌词暂时无法载入":lyricLines.length()==0?"此刻，让旋律说话":"";emit();});
         network.execute(()->{try{JSONObject result=request("/api/play/"+id,true);String route=result.getString("audio");
             if(!route.matches("/audio/[0-9]+"))throw new IOException("音频地址不可用");
+            JSONObject detail=result.optJSONObject("track");if(detail!=null){Track full=new Track(detail);main.post(()->{if(disposed||currentGeneration!=generation||current()==null||current().id!=id)return;tracks.set(index,full);emit();});}
             File buffer=buffer(id,route,currentGeneration);
             main.post(()->{if(disposed||currentGeneration!=generation||!foreground)return;prepare(buffer,currentGeneration);});
         }catch(Exception e){main.post(()->{if(currentGeneration!=generation||disposed)return;preparing=false;playMessage=friendly(e);emit();});}});
@@ -205,7 +213,7 @@ final class MusicController {
         }
     }
     private void prefetch(int version){
-        if(index+1>=tracks.size())return;long id=tracks.get(index+1).id;
+        if(order.mode()==PlaybackOrder.SHUFFLE||index+1>=tracks.size())return;long id=tracks.get(index+1).id;
         network.execute(()->{try{if(version!=generation||disposed)return;JSONObject result=request("/api/play/"+id,true);String route=result.optString("audio");if(route.matches("/audio/[0-9]+"))buffer(id,route,version);}catch(Exception ignored){}});
     }
     private void prepare(File buffer,int version){
@@ -216,7 +224,7 @@ final class MusicController {
             // private file descriptor; only our Java HTTP client handles the paired stream.
             try(FileInputStream input=new FileInputStream(buffer)){player.setDataSource(input.getFD());}
             player.setOnPreparedListener(p->{if(version!=generation||disposed||p!=player)return;if(pendingStartPosition>0){int start=bookmark.forTrack(current().id,p.getDuration());p.setOnSeekCompleteListener(done->{if(version!=generation||disposed||done!=player)return;done.setOnSeekCompleteListener(null);startPrepared(version);});p.seekTo(start,MediaPlayer.SEEK_CLOSEST);}else startPrepared(version);});
-            player.setOnCompletionListener(p->{if(p==player){playing=false;next();}});
+            player.setOnCompletionListener(p->{if(p==player){playing=false;advance(true);}});
             player.setOnErrorListener((p,what,extra)->{if(p==player){preparing=false;playing=false;playMessage="播放连接中断，按播放重试";releasePlayer();keepScreen(false);emit();}return true;});
             player.prepareAsync();
         }catch(Exception e){preparing=false;playMessage="暂时无法播放这首歌";releasePlayer();emit();}
@@ -229,8 +237,47 @@ final class MusicController {
         try{player.start();playing=true;playMessage="";rememberCurrent();saveCheckpoint();main.removeCallbacks(checkpoint);main.postDelayed(checkpoint,5000);keepScreen(true);emit();}catch(IllegalStateException e){playMessage="播放连接中断，请重试";emit();}
     }
     void pause(boolean abandon){saveCheckpoint();main.removeCallbacks(checkpoint);resumeOnGain=false;if(player!=null&&!preparing)try{player.pause();}catch(IllegalStateException ignored){}playing=false;keepScreen(false);if(abandon)audio.abandonAudioFocusRequest(audioFocus);emit();}
-    void next(){if(tracks.isEmpty())return;if(index+1<tracks.size())play(index+1);else if(hasMore)loadMore(()->play(index+1));else play(0);}
-    void previous(){if(tracks.isEmpty())return;if(position()>3000){seek(-position());return;}play(Math.max(0,index-1));}
+    int playMode(){return order.mode();}
+    String modeName(){return MODE_NAMES[order.mode()];}
+    void cycleMode(){order.mode((order.mode()+1)%4);advancePending=false;owner.getSharedPreferences("music",0).edit().putInt("play_mode",order.mode()).apply();emit();}
+    void next(){advance(false);}
+    private void advance(boolean completed){
+        if(tracks.isEmpty()||advancePending||!foreground)return;
+        boolean needPage=hasMore&&(order.mode()==PlaybackOrder.SHUFFLE||index+1>=tracks.size()&&!(completed&&order.mode()==PlaybackOrder.ONE));
+        if(needPage){
+            advancePending=true;final int queue=queueRevision,version=generation,mode=order.mode();
+            Runnable more=()->{advancePending=false;if(!disposed&&queue==queueRevision&&version==generation&&mode==order.mode())advance(completed);};
+            if(order.mode()==PlaybackOrder.SHUFFLE&&(queueRoute.equals("/api/likes")||queueRoute.matches("/api/playlist/[0-9]+"))){
+                final String route=queueRoute;final long currentId=current().id;
+                String encoded;try{encoded=java.net.URLEncoder.encode(route,"UTF-8");}catch(Exception ignored){advancePending=false;return;}
+                fetch("/api/queue?source="+encoded,(data,error)->{
+                    if(disposed||queue!=queueRevision||version!=generation||mode!=order.mode())return;advancePending=false;
+                    if(data==null){playMessage=error;emit();return;}
+                    JSONArray entries=data.optJSONArray("tracks");if(entries==null||entries.length()==0){playMessage="播放列表暂时不可用";emit();return;}
+                    ArrayList<Track> full=new ArrayList<>();HashMap<Long,Track> known=new HashMap<>();for(Track track:tracks)known.put(track.id,track);
+                    int selected=-1;for(int i=0;i<entries.length();i++){JSONObject item=entries.optJSONObject(i);if(item==null||item.optLong("id")<=0)continue;Track track=known.get(item.optLong("id"));if(track==null)track=new Track(item);if(track.id==currentId)selected=full.size();full.add(track);}
+                    if(selected<0){selected=full.size();full.add(current());}queueRevision++;pageBusy=false;afterPage=null;tracks.clear();tracks.addAll(full);index=selected;hasMore=false;nextOffset=full.size();order.reset();advance(completed);
+                });
+            }else loadMore(more);return;
+        }
+        int selected=order.next(index,tracks.size(),completed);
+        if(selected<0){pause(true);playMessage="列表播放完毕";if(player!=null)try{player.seekTo(0);}catch(IllegalStateException ignored){}sampledAt=0;emit();return;}
+        play(selected);
+    }
+    void previous(){if(tracks.isEmpty())return;if(position()>3000){seek(-position());return;}advancePending=false;play(order.previous(index,tracks.size()));}
+    boolean favoriteKnown(){Track track=current();return track!=null&&knownFavorites.contains(track.id);}
+    boolean isFavorite(){Track track=current();return track!=null&&likedIds.contains(track.id);}
+    boolean favoriteBusy(){return favoriteBusy;}
+    private void refreshFavorite(long id){
+        if(knownFavorites.contains(id)||!favoriteRequests.add(id))return;int epoch=accountEpoch,revision=favoriteRevision;
+        fetch("/api/favorite/"+id,(data,error)->{if(epoch!=accountEpoch)return;favoriteRequests.remove(id);if(revision!=favoriteRevision)return;if(data!=null){knownFavorites.add(id);if(data.optBoolean("liked"))likedIds.add(id);else likedIds.remove(id);}else favoriteMessage=error;emit();});
+    }
+    void toggleFavorite(){
+        Track track=current();if(track==null||favoriteBusy||!phase.equals("ready"))return;
+        if(!favoriteKnown()){favoriteMessage="正在同步爱心状态…";refreshFavorite(track.id);emit();return;}
+        final long id=track.id;final boolean liked=!likedIds.contains(id);final int epoch=accountEpoch;favoriteBusy=true;favoriteMessage="正在同步…";emit();
+        network.execute(()->{try{JSONObject data=request("/api/favorite/"+id+"?liked="+liked,true);main.post(()->{if(disposed||epoch!=accountEpoch)return;favoriteBusy=false;knownFavorites.add(id);if(data.optBoolean("liked"))likedIds.add(id);else likedIds.remove(id);favoriteRevision++;favoriteMessage=data.optBoolean("liked")?"已添加到爱心歌单":"已取消爱心";emit();});}catch(Exception e){main.post(()->{if(disposed||epoch!=accountEpoch)return;favoriteBusy=false;favoriteMessage=friendly(e);emit();});}});
+    }
     void seek(int delta){if(player!=null&&!preparing)try{final int version=generation;player.setOnSeekCompleteListener(p->{if(p!=player||version!=generation)return;saveCheckpoint();sampledAt=0;emit();});player.seekTo(Math.max(0,Math.min(duration()-500,position()+delta)));sampledAt=0;}catch(IllegalStateException ignored){}}
     void foreground(boolean value){
         if(foreground==value)return;foreground=value;

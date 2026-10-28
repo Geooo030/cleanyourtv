@@ -127,6 +127,7 @@ public final class GlassHomeActivity extends Activity {
         super.dump(prefix,fd,writer,args);
         if(music!=null)writer.println(prefix+"GlassMusic: playing="+music.playing+" preparing="+music.busy()+" position="+music.position()+" duration="+music.duration()+" queue="+music.tracks.size()+" index="+music.index+" phase="+music.phase+" lyrics="+music.lyricLines.length()+" wordTimed="+music.wordTimed+" rhythm="+music.rhythmSamples()+" level="+music.level(0)+" backgroundPending="+musicVisibility.pending());
         if(homePreview!=null)writer.println(prefix+"GlassPreview: "+homePreview.snapshot());
+        writer.println(prefix+"GlassHomeRouting: "+HomeGuardService.snapshot());
         if(music!=null)writer.println(prefix+"GlassBookmark: track="+(music.previewTrack()==null?0:music.previewTrack().id)+" saved="+music.savedPosition());
         if(music!=null)writer.println(prefix+"GlassArtwork: "+music.artworkSnapshot());
         if(optionsOverlay instanceof MusicOverlay)writer.println(prefix+"GlassMusicPanel: "+((MusicOverlay)optionsOverlay).snapshot());
@@ -137,8 +138,8 @@ public final class GlassHomeActivity extends Activity {
         setIntent(intent);
         // Returning Home closes navigation only. The player, queue and playhead
         // remain owned by this singleTask Activity across the intent handoff.
-        if(appsOverlay!=null)appsOverlay.dismissImmediately();
-        if(optionsOverlay!=null)optionsOverlay.dismissImmediately();
+        if(appsOverlay!=null){appsOverlay.dismissToHome();return;}
+        if(optionsOverlay!=null){optionsOverlay.afterClose=()->scene.focusApp(0);optionsOverlay.dismiss();return;}
         scene.focusApp(0);
     }
 
